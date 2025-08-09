@@ -8,11 +8,38 @@ This is a Claude Code hook that sends Pushbullet notifications when Claude Code 
 
 ## Development Setup
 
+### Local Development
+
 Install dependencies using `uv`:
 ```bash
 uv venv
 uv pip install -e .
 ```
+
+### DevContainer Development
+
+This project includes a DevContainer configuration for consistent development environments. The DevContainer includes:
+- Python 3.12 (managed by mise)
+- uv for Python package management
+- mise for runtime version management
+- Git and GitHub CLI
+- Automated environment setup
+
+To use the DevContainer:
+1. Open the project in VS Code
+2. Install the "Dev Containers" extension if not already installed
+3. Click "Reopen in Container" when prompted (or use Command Palette: "Dev Containers: Reopen in Container")
+4. The container will automatically:
+   - Install mise and uv
+   - Set up Python 3.12
+   - Create a virtual environment
+   - Install project dependencies
+   - Configure bash aliases for common tasks
+
+The DevContainer provides these convenient aliases:
+- `test` - Run pytest tests
+- `test-cov` - Run tests with coverage report
+- `notify-test` - Test the notification system
 
 ## Architecture
 
