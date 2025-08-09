@@ -1,7 +1,8 @@
 """Pytest configuration and fixtures."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 @pytest.fixture(autouse=True)
