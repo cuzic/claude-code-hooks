@@ -90,8 +90,15 @@ Check the log file for troubleshooting:
 tail -f claude-code-pushbullet-notify.log
 ```
 
-Test the transcript reading:
+Test the notification system:
 ```bash
+# Basic test
+python -m claude_code_pushbullet_notify --test
+
+# Test with specific transcript file
+python -m claude_code_pushbullet_notify --test --transcript-path /path/to/transcript.jsonl
+
+# Legacy test script
 python test_transcript.py
 ```
 

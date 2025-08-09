@@ -7,6 +7,8 @@ import os
 import sys
 import subprocess
 import json
+import logging
+import argparse
 from pathlib import Path
 import tomllib
 from dotenv import load_dotenv
@@ -18,6 +20,16 @@ load_dotenv(env_path)
 # Default configuration
 DEFAULT_NUM_MESSAGES = 3
 DEFAULT_MAX_BODY_LENGTH = 500
+
+def merge_configs(default, loaded):
+    """Recursively merge two configuration dictionaries."""
+    result = default.copy()
+    for key, value in loaded.items():
+        if isinstance(value, dict) and key in result and isinstance(result[key], dict):
+            result[key] = merge_configs(result[key], value)
+        else:
+            result[key] = value
+    return result
 
 def load_config():
     """Load configuration from config.toml file."""
@@ -38,19 +50,34 @@ def load_config():
         try:
             with open(config_path, 'rb') as f:
                 loaded_config = tomllib.load(f)
-                # Merge loaded config with defaults
-                for section, values in loaded_config.items():
-                    if section in config:
-                        config[section].update(values)
-                    else:
-                        config[section] = values
+                # Recursively merge loaded config with defaults
+                config = merge_configs(config, loaded_config)
         except Exception as e:
-            print(f"Error loading config: {e}", file=sys.stderr)
+            logging.error(f"Error loading config: {e}")
     
     return config
 
 # Load configuration on import
 CONFIG = load_config()
+
+# Set up logging
+def setup_logging():
+    """Configure logging based on config settings."""
+    log_level = logging.DEBUG if CONFIG['logging']['debug'] else logging.INFO
+    log_file = Path(__file__).parent.parent / CONFIG['logging']['log_file']
+    
+    # Configure logging to file and stderr
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stderr)
+        ]
+    )
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 def read_hook_input():
     """Read JSON input from stdin for the hook."""
@@ -64,7 +91,7 @@ def read_hook_input():
         hook_data = json.loads(input_data)
         return hook_data
     except (json.JSONDecodeError, Exception) as e:
-        print(f"Error reading hook input: {e}", file=sys.stderr)
+        logger.error(f"Error reading hook input: {e}")
         return None
 
 def get_git_info():
@@ -115,7 +142,7 @@ def get_last_messages_from_transcript(transcript_path, num_lines=None):
         
         messages = []
         with open(transcript_path, 'r', encoding='utf-8') as f:
-            for line in f:
+            for line_number, line in enumerate(f, 1):
                 try:
                     data = json.loads(line)
                     # Check if this is an assistant message
@@ -133,7 +160,8 @@ def get_last_messages_from_transcript(transcript_path, num_lines=None):
                                         text = item.get('text', '').strip()
                                         if text:  # Only add non-empty messages
                                             messages.append(text)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    logger.debug(f"Line {line_number}: Skipping invalid JSON - {e}")
                     continue
         
         # Get last N messages and join them
@@ -147,7 +175,7 @@ def get_last_messages_from_transcript(transcript_path, num_lines=None):
         else:
             return "Task completed."
     except Exception as e:
-        print(f"Error reading transcript: {e}", file=sys.stderr)
+        logger.error(f"Error reading transcript: {e}")
         return "Task completed."
 
 def send_pushbullet_notification(title, body):
@@ -157,7 +185,7 @@ def send_pushbullet_notification(title, body):
     if not token and 'token' in CONFIG.get('pushbullet', {}):
         token = CONFIG['pushbullet']['token']
     if not token:
-        print("Error: PUSHBULLET_TOKEN not set. Please set it in environment variable or config.toml", file=sys.stderr)
+        logger.error("PUSHBULLET_TOKEN not set. Please set it in environment variable or config.toml")
         return False
     
     payload = {
@@ -195,49 +223,67 @@ def send_pushbullet_notification(title, body):
 
 def main():
     """Main function for the Claude Code hook."""
+    parser = argparse.ArgumentParser(description='Claude Code Pushbullet notification hook')
+    parser.add_argument('--test', action='store_true', help='Run in test mode')
+    parser.add_argument('--transcript-path', help='Path to transcript file for testing')
+    args = parser.parse_args()
+    
+    if args.test:
+        # Test mode
+        logger.info("Running in test mode")
+        repo_name, branch_name = get_git_info()
+        logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
+        
+        if args.transcript_path:
+            notification_body = get_last_messages_from_transcript(args.transcript_path)
+        else:
+            notification_body = "Test mode - no transcript available"
+        
+        title = f"claude code task completed {repo_name} {branch_name}"
+        logger.info(f"Sending test notification: {title}")
+        result = send_pushbullet_notification(title, notification_body)
+        logger.info(f"Test notification sent: {result}")
+        return
+    
     # Read JSON input from stdin
     hook_data = read_hook_input()
     
     if hook_data:
         # Hook mode: Process stop event
         hook_event = hook_data.get('hook_event_name', '')
-        print(f"Hook event: {hook_event}", file=sys.stderr)
+        logger.info(f"Hook event: {hook_event}")
         
         if hook_event == 'Stop':
             # Get transcript path from hook data
             transcript_path = hook_data.get('transcript_path')
-            print(f"Transcript path: {transcript_path}", file=sys.stderr)
-            print(f"Stop hook active: {hook_data.get('stop_hook_active')}", file=sys.stderr)
+            logger.debug(f"Transcript path: {transcript_path}")
+            logger.debug(f"Stop hook active: {hook_data.get('stop_hook_active')}")
             
             if transcript_path:
                 repo_name, branch_name = get_git_info()
                 notification_body = get_last_messages_from_transcript(transcript_path)
                 title = f"claude code task completed {repo_name} {branch_name}"
                 
-                if CONFIG['logging']['debug']:
-                    print(f"Config: num_messages={CONFIG['notification']['num_messages']}, max_body_length={CONFIG['notification']['max_body_length']}", file=sys.stderr)
-                    print(f"Sending notification: {title}", file=sys.stderr)
-                    print(f"Notification body: {notification_body[:100]}..." if len(notification_body) > 100 else f"Notification body: {notification_body}", file=sys.stderr)
+                logger.debug(f"Config: num_messages={CONFIG['notification']['num_messages']}, max_body_length={CONFIG['notification']['max_body_length']}")
+                logger.info(f"Sending notification: {title}")
+                logger.debug(f"Notification body: {notification_body[:100]}..." if len(notification_body) > 100 else f"Notification body: {notification_body}")
                 
                 result = send_pushbullet_notification(title, notification_body)
-                
-                if CONFIG['logging']['debug']:
-                    print(f"Notification sent: {result}", file=sys.stderr)
+                logger.info(f"Notification sent: {result}")
             else:
-                print("No transcript path provided", file=sys.stderr)
+                logger.warning("No transcript path provided")
         else:
-            print(f"Skipping - Event: {hook_event} (not Stop)", file=sys.stderr)
+            logger.info(f"Skipping - Event: {hook_event} (not Stop)")
     else:
-        # Standalone mode (for testing)
-        print("No JSON input received. Running in test mode.", file=sys.stderr)
+        # Legacy fallback mode (no arguments and no stdin)
+        logger.info("No JSON input received. Running in legacy test mode")
         repo_name, branch_name = get_git_info()
-        print(f"Repository: {repo_name}, Branch: {branch_name}", file=sys.stderr)
-        # For testing, you would need to provide a transcript path
+        logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
         notification_body = "Test mode - no transcript available"
         title = f"claude code task completed {repo_name} {branch_name}"
-        print(f"Sending test notification: {title}", file=sys.stderr)
+        logger.info(f"Sending test notification: {title}")
         result = send_pushbullet_notification(title, notification_body)
-        print(f"Test notification sent: {result}", file=sys.stderr)
+        logger.info(f"Test notification sent: {result}")
 
 if __name__ == "__main__":
     main()
