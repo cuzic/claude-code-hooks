@@ -1,0 +1,1 @@
+"""Tests for Claude Code Pushbullet notification hook."""

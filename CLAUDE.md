@@ -31,12 +31,21 @@ The hook is triggered by Claude Code's stop event and processes the transcript p
 
 ## Testing
 
-Test the notification system:
+The project uses pytest for testing. Tests are organized in the `tests/` directory:
+- `tests/test_transcript.py`: Tests for transcript reading and parsing functionality
+- `tests/test_notification.py`: Tests for Pushbullet notification sending and main function
+
+Run all tests:
 ```bash
-python -m claude_code_pushbullet_notify
+pytest
 ```
 
-Test transcript parsing:
+Run with coverage:
 ```bash
-python test_transcript.py
+pytest --cov=claude_code_pushbullet_notify
+```
+
+Test the notification system manually:
+```bash
+python -m claude_code_pushbullet_notify
 ```
