@@ -24,7 +24,7 @@ fi
 # Install dependencies
 echo "📚 Installing Python dependencies..."
 uv pip install -e .
-uv pip install pytest pytest-cov
+uv pip install pytest pytest-cov pyright
 
 # Install pre-commit hooks if .pre-commit-config.yaml exists
 if [ -f ".pre-commit-config.yaml" ]; then

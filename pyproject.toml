@@ -22,3 +22,20 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[tool.pyright]
+include = ["claude_code_pushbullet_notify", "tests"]
+exclude = [".venv", "build", "dist"]
+typeCheckingMode = "basic"
+pythonVersion = "3.9"
+pythonPlatform = "Linux"
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportUnusedImport = true
+reportUnusedClass = true
+reportUnusedFunction = true
+reportUnusedVariable = true
+reportDuplicateImport = true
+reportOptionalMemberAccess = false
+reportGeneralTypeIssues = true
+reportUnboundVariable = true

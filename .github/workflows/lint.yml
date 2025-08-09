@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: |
           uv venv
-          uv pip install ruff mypy types-requests
+          uv pip install ruff pyright types-requests
       
       - name: Run ruff format check
         run: |
@@ -36,6 +36,6 @@ jobs:
         run: |
           uv run ruff check .
       
-      - name: Run mypy type checking
+      - name: Run pyright type checking
         run: |
-          uv run mypy claude_code_pushbullet_notify --ignore-missing-imports || true
+          uv run pyright claude_code_pushbullet_notify || true

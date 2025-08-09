@@ -91,7 +91,7 @@ The project uses GitHub Actions for continuous integration:
 
 2. **Lint Workflow** (`.github/workflows/lint.yml`):
    - Runs ruff for code formatting and linting
-   - Performs mypy type checking
+   - Performs pyright type checking
    - Ensures code quality standards
 
 ### Running CI Locally
