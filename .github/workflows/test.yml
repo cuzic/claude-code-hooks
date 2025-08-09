@@ -1,0 +1,85 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-with-devcontainer:
+    name: Run Tests in DevContainer
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build and run tests in devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          runCmd: |
+            # Show environment info
+            echo "=== Environment Info ==="
+            python --version
+            uv --version
+            mise --version
+            echo ""
+            
+            # Install dependencies
+            echo "=== Installing Dependencies ==="
+            uv venv
+            uv pip install -e .
+            uv pip install pytest pytest-cov
+            echo ""
+            
+            # Run tests with coverage
+            echo "=== Running Tests ==="
+            uv run pytest -v --cov=claude_code_pushbullet_notify --cov-report=term-missing --cov-report=xml
+            
+            # Display coverage summary
+            echo ""
+            echo "=== Coverage Summary ==="
+            uv run coverage report
+
+  test-matrix:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      
+      - name: Install dependencies
+        run: |
+          uv venv
+          uv pip install -e .
+          uv pip install pytest pytest-cov
+      
+      - name: Run tests
+        run: |
+          uv run pytest -v --cov=claude_code_pushbullet_notify --cov-report=term-missing
+      
+      - name: Upload coverage reports
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false

@@ -1,5 +1,8 @@
 # Claude Code Stop Notification Hook
 
+[![Test](https://github.com/cuzic/claude-code-pushbullet-notify/actions/workflows/test.yml/badge.svg)](https://github.com/cuzic/claude-code-pushbullet-notify/actions/workflows/test.yml)
+[![Lint](https://github.com/cuzic/claude-code-pushbullet-notify/actions/workflows/lint.yml/badge.svg)](https://github.com/cuzic/claude-code-pushbullet-notify/actions/workflows/lint.yml)
+
 A notification system for Claude Code that sends Pushbullet notifications when Claude Code tasks complete, including the last conversation messages in the notification.
 
 ## Features

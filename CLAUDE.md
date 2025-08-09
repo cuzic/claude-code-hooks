@@ -76,3 +76,32 @@ Test the notification system manually:
 ```bash
 python -m claude_code_pushbullet_notify
 ```
+
+## CI/CD
+
+The project uses GitHub Actions for continuous integration:
+
+### Workflows
+
+1. **Test Workflow** (`.github/workflows/test.yml`):
+   - Runs pytest in the DevContainer environment
+   - Tests against Python 3.9, 3.10, 3.11, and 3.12
+   - Generates coverage reports
+   - Triggered on push to main and pull requests
+
+2. **Lint Workflow** (`.github/workflows/lint.yml`):
+   - Runs ruff for code formatting and linting
+   - Performs mypy type checking
+   - Ensures code quality standards
+
+### Running CI Locally
+
+You can test the CI workflows locally using the DevContainer:
+```bash
+# Run tests as CI would
+uv run pytest -v --cov=claude_code_pushbullet_notify --cov-report=term-missing
+
+# Run linting as CI would
+uv run ruff format --check .
+uv run ruff check .
+```
