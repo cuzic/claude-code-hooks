@@ -1,0 +1,19 @@
+# Claude Code Stop Notification Configuration
+
+[notification]
+# Number of last assistant messages to include in the notification
+num_messages = 3
+
+# Maximum length of notification body (characters)
+max_body_length = 500
+
+[pushbullet]
+# Pushbullet API token (can also be set via PUSHBULLET_TOKEN environment variable)
+# token = "your_token_here"
+
+[logging]
+# Enable debug logging
+debug = true
+
+# Log file path (relative to project directory)
+log_file = "claude-code-pushbullet-notify.log"
