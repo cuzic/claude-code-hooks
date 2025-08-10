@@ -7,6 +7,23 @@ num_messages = 3
 # Maximum length of notification body (characters)
 max_body_length = 500
 
+# Notification title template
+# Available variables:
+#   {GIT_REPO} - Git repository name
+#   {GIT_BRANCH} - Git branch name
+#   {TIMESTAMP} - Current timestamp (YYYY-MM-DD HH:MM:SS)
+#   {DATE} - Current date (YYYY-MM-DD)
+#   {TIME} - Current time (HH:MM:SS)
+#   {HOSTNAME} - Host machine name
+#   {USERNAME} - Current user name
+#   {CWD} - Current working directory (full path)
+#   {CWD_BASENAME} - Current working directory name (last part only)
+title_template = "Claude Code: {GIT_REPO} ({GIT_BRANCH}) - Task completed"
+
+# Optional: Custom body template (if not set, uses last messages from transcript)
+# Example with all variables:
+# body_template = "Repository: {GIT_REPO}\nBranch: {GIT_BRANCH}\nUser: {USERNAME}@{HOSTNAME}\nDirectory: {CWD}\nProject: {CWD_BASENAME}\n\nTask completed at {TIMESTAMP}"
+
 [pushbullet]
 # Pushbullet API token (can also be set via PUSHBULLET_TOKEN environment variable)
 # token = "your_token_here"
