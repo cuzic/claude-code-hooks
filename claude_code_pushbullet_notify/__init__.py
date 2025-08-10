@@ -7,8 +7,10 @@ import argparse
 import json
 import logging
 import os
+import socket
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import tomllib
@@ -127,6 +129,63 @@ def get_git_info():
         return Path.cwd().name, "main"
 
 
+def _extract_message_text(content):
+    """Extract text from message content (string or list format)."""
+    if isinstance(content, str):
+        return [content]
+    
+    if isinstance(content, list):
+        texts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text = item.get("text", "").strip()
+                if text:
+                    texts.append(text)
+        return texts
+    
+    return []
+
+
+def _process_transcript_line(line, line_number):
+    """Process a single transcript line and extract assistant messages."""
+    try:
+        data = json.loads(line)
+        if data.get("type") != "assistant" or "message" not in data:
+            return []
+        
+        msg = data["message"]
+        if msg.get("role") != "assistant" or "content" not in msg:
+            return []
+        
+        return _extract_message_text(msg["content"])
+    except json.JSONDecodeError as e:
+        logger.debug(f"Line {line_number}: Skipping invalid JSON - {e}")
+        return []
+
+
+def _read_transcript_messages(transcript_path):
+    """Read all assistant messages from transcript file."""
+    messages = []
+    with open(transcript_path, encoding="utf-8") as f:
+        for line_number, line in enumerate(f, 1):
+            messages.extend(_process_transcript_line(line, line_number))
+    return messages
+
+
+def _format_notification_body(messages, num_lines, max_length):
+    """Format messages for notification body."""
+    if not messages:
+        return "Task completed."
+    
+    last_messages = messages[-num_lines:] if len(messages) > num_lines else messages
+    result = "\n\n".join(last_messages)
+    
+    if len(result) > max_length:
+        result = result[: max_length - 3] + "..."
+    
+    return result
+
+
 def get_last_messages_from_transcript(transcript_path, num_lines=None):
     """Get the last N lines from the transcript file."""
     if not transcript_path or not Path(transcript_path).exists():
@@ -138,43 +197,9 @@ def get_last_messages_from_transcript(transcript_path, num_lines=None):
     max_length = CONFIG["notification"]["max_body_length"]
 
     try:
-        # Expand ~ in path
         transcript_path = Path(transcript_path).expanduser()
-
-        messages = []
-        with open(transcript_path, encoding="utf-8") as f:
-            for line_number, line in enumerate(f, 1):
-                try:
-                    data = json.loads(line)
-                    # Check if this is an assistant message
-                    if data.get("type") == "assistant" and "message" in data:
-                        msg = data["message"]
-                        # Extract text from assistant messages
-                        if msg.get("role") == "assistant" and "content" in msg:
-                            content = msg["content"]
-                            # Handle both string and list content formats
-                            if isinstance(content, str):
-                                messages.append(content)
-                            elif isinstance(content, list):
-                                for item in content:
-                                    if isinstance(item, dict) and item.get("type") == "text":
-                                        text = item.get("text", "").strip()
-                                        if text:  # Only add non-empty messages
-                                            messages.append(text)
-                except json.JSONDecodeError as e:
-                    logger.debug(f"Line {line_number}: Skipping invalid JSON - {e}")
-                    continue
-
-        # Get last N messages and join them
-        if messages:
-            last_messages = messages[-num_lines:] if len(messages) > num_lines else messages
-            # Truncate long messages for notification
-            result = "\n\n".join(last_messages)
-            if len(result) > max_length:  # Limit notification body length
-                result = result[: max_length - 3] + "..."
-            return result
-        else:
-            return "Task completed."
+        messages = _read_transcript_messages(transcript_path)
+        return _format_notification_body(messages, num_lines, max_length)
     except Exception as e:
         logger.error(f"Error reading transcript: {e}")
         return "Task completed."
@@ -224,6 +249,136 @@ def send_pushbullet_notification(title, body):
         return result.returncode == 0
 
 
+def _handle_test_mode(args):
+    """Handle test mode execution."""
+    logger.info("Running in test mode")
+    repo_name, branch_name = get_git_info()
+    logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
+
+    if args.transcript_path:
+        notification_body = get_last_messages_from_transcript(args.transcript_path)
+    else:
+        notification_body = "Test mode - no transcript available"
+
+    _send_notification(repo_name, branch_name, notification_body)
+
+
+def _format_template(template, variables):
+    """Format a template string with provided variables."""
+    if template is None:
+        return None
+    if not template:
+        return ""
+    
+    result = template
+    for key, value in variables.items():
+        result = result.replace(f"{{{key}}}", str(value))
+    
+    return result
+
+
+def _get_template_variables(repo_name, branch_name):
+    """Get all available template variables."""
+    now = datetime.now()
+    
+    # Get hostname
+    try:
+        hostname = socket.gethostname()
+    except Exception:
+        hostname = "unknown"
+    
+    # Get username
+    username = os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
+    
+    # Get current working directory
+    cwd = os.getcwd()
+    
+    # Get basename of current working directory
+    # Handle edge case where path ends with slash
+    cwd_basename = os.path.basename(cwd.rstrip(os.sep)) if cwd != os.sep else ""
+    
+    return {
+        "GIT_REPO": repo_name,
+        "GIT_BRANCH": branch_name,
+        "TIMESTAMP": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "DATE": now.strftime("%Y-%m-%d"),
+        "TIME": now.strftime("%H:%M:%S"),
+        "HOSTNAME": hostname,
+        "USERNAME": username,
+        "CWD": cwd,
+        "CWD_BASENAME": cwd_basename,
+    }
+
+
+def _send_notification(repo_name, branch_name, notification_body):
+    """Send notification with template-based or standard title format."""
+    variables = _get_template_variables(repo_name, branch_name)
+    
+    # Use template from config if available, otherwise use default
+    title_template = CONFIG.get("notification", {}).get(
+        "title_template", 
+        "claude code task completed {GIT_REPO} {GIT_BRANCH}"
+    )
+    title = _format_template(title_template, variables)
+    
+    # Check if there's a custom body template
+    body_template = CONFIG.get("notification", {}).get("body_template")
+    if body_template:
+        notification_body = _format_template(body_template, variables)
+    
+    logger.info(f"Sending notification: {title}")
+    
+    if len(notification_body) > 100:
+        logger.debug(f"Notification body: {notification_body[:100]}...")
+    else:
+        logger.debug(f"Notification body: {notification_body}")
+    
+    result = send_pushbullet_notification(title, notification_body)
+    logger.info(f"Notification sent: {result}")
+    return result
+
+
+def _handle_stop_event(hook_data):
+    """Handle Stop event from hook."""
+    transcript_path = hook_data.get("transcript_path")
+    logger.debug(f"Transcript path: {transcript_path}")
+    logger.debug(f"Stop hook active: {hook_data.get('stop_hook_active')}")
+
+    if not transcript_path:
+        logger.warning("No transcript path provided")
+        return
+
+    repo_name, branch_name = get_git_info()
+    notification_body = get_last_messages_from_transcript(transcript_path)
+    
+    logger.debug(
+        f"Config: num_messages={CONFIG['notification']['num_messages']}, "
+        f"max_body_length={CONFIG['notification']['max_body_length']}"
+    )
+    
+    _send_notification(repo_name, branch_name, notification_body)
+
+
+def _handle_hook_mode(hook_data):
+    """Handle hook mode execution."""
+    hook_event = hook_data.get("hook_event_name", "")
+    logger.info(f"Hook event: {hook_event}")
+
+    if hook_event == "Stop":
+        _handle_stop_event(hook_data)
+    else:
+        logger.info(f"Skipping - Event: {hook_event} (not Stop)")
+
+
+def _handle_legacy_mode():
+    """Handle legacy fallback mode."""
+    logger.info("No JSON input received. Running in legacy test mode")
+    repo_name, branch_name = get_git_info()
+    logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
+    notification_body = "Test mode - no transcript available"
+    _send_notification(repo_name, branch_name, notification_body)
+
+
 def main():
     """Main function for the Claude Code hook."""
     parser = argparse.ArgumentParser(description="Claude Code Pushbullet notification hook")
@@ -232,67 +387,14 @@ def main():
     args = parser.parse_args()
 
     if args.test:
-        # Test mode
-        logger.info("Running in test mode")
-        repo_name, branch_name = get_git_info()
-        logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
-
-        if args.transcript_path:
-            notification_body = get_last_messages_from_transcript(args.transcript_path)
-        else:
-            notification_body = "Test mode - no transcript available"
-
-        title = f"claude code task completed {repo_name} {branch_name}"
-        logger.info(f"Sending test notification: {title}")
-        result = send_pushbullet_notification(title, notification_body)
-        logger.info(f"Test notification sent: {result}")
+        _handle_test_mode(args)
         return
 
-    # Read JSON input from stdin
     hook_data = read_hook_input()
-
     if hook_data:
-        # Hook mode: Process stop event
-        hook_event = hook_data.get("hook_event_name", "")
-        logger.info(f"Hook event: {hook_event}")
-
-        if hook_event == "Stop":
-            # Get transcript path from hook data
-            transcript_path = hook_data.get("transcript_path")
-            logger.debug(f"Transcript path: {transcript_path}")
-            logger.debug(f"Stop hook active: {hook_data.get('stop_hook_active')}")
-
-            if transcript_path:
-                repo_name, branch_name = get_git_info()
-                notification_body = get_last_messages_from_transcript(transcript_path)
-                title = f"claude code task completed {repo_name} {branch_name}"
-
-                logger.debug(
-                    f"Config: num_messages={CONFIG['notification']['num_messages']}, max_body_length={CONFIG['notification']['max_body_length']}"
-                )
-                logger.info(f"Sending notification: {title}")
-                logger.debug(
-                    f"Notification body: {notification_body[:100]}..."
-                    if len(notification_body) > 100
-                    else f"Notification body: {notification_body}"
-                )
-
-                result = send_pushbullet_notification(title, notification_body)
-                logger.info(f"Notification sent: {result}")
-            else:
-                logger.warning("No transcript path provided")
-        else:
-            logger.info(f"Skipping - Event: {hook_event} (not Stop)")
+        _handle_hook_mode(hook_data)
     else:
-        # Legacy fallback mode (no arguments and no stdin)
-        logger.info("No JSON input received. Running in legacy test mode")
-        repo_name, branch_name = get_git_info()
-        logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
-        notification_body = "Test mode - no transcript available"
-        title = f"claude code task completed {repo_name} {branch_name}"
-        logger.info(f"Sending test notification: {title}")
-        result = send_pushbullet_notification(title, notification_body)
-        logger.info(f"Test notification sent: {result}")
+        _handle_legacy_mode()
 
 
 if __name__ == "__main__":

@@ -67,7 +67,7 @@ class TestMainFunction:
         mock_get_messages.assert_called_once_with("/test/transcript.jsonl")
         mock_send.assert_called_once()
         call_args = mock_send.call_args[0]
-        assert "claude code task completed" in call_args[0]
+        assert "Claude Code:" in call_args[0] and "Task completed" in call_args[0]
         assert "Test messages" in call_args[1]
 
     @patch("sys.argv", ["script"])
@@ -83,7 +83,7 @@ class TestMainFunction:
 
         mock_send.assert_called_once()
         call_args = mock_send.call_args[0]
-        assert "claude code task completed" in call_args[0]
+        assert "Claude Code:" in call_args[0] and "Task completed" in call_args[0]
         assert "Test mode - no transcript available" in call_args[1]
 
     @patch("sys.argv", ["script"])
@@ -111,7 +111,7 @@ class TestMainFunction:
 
         mock_send.assert_called_once()
         call_args = mock_send.call_args[0]
-        assert "claude code task completed" in call_args[0]
+        assert "Claude Code:" in call_args[0] and "Task completed" in call_args[0]
         assert "Test mode - no transcript available" in call_args[1]
 
     @patch("sys.argv", ["script", "--test", "--transcript-path", "/test/transcript.jsonl"])
@@ -128,5 +128,5 @@ class TestMainFunction:
         mock_get_messages.assert_called_once_with("/test/transcript.jsonl")
         mock_send.assert_called_once()
         call_args = mock_send.call_args[0]
-        assert "claude code task completed" in call_args[0]
+        assert "Claude Code:" in call_args[0] and "Task completed" in call_args[0]
         assert "Test transcript content" in call_args[1]
