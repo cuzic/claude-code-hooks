@@ -95,6 +95,15 @@ def read_hook_input():
 
 def get_git_info():
     """Get repository name and branch name from git."""
+    # First check if the shell script has already captured git info in environment variables
+    repo_name = os.environ.get("HOOK_GIT_REPO")
+    branch_name = os.environ.get("HOOK_GIT_BRANCH")
+    
+    if repo_name and branch_name:
+        # Use the git info captured by the shell script from the original directory
+        return repo_name, branch_name
+    
+    # Fallback to the old method for testing or when not called via the shell script
     try:
         # Get current working directory from environment or fallback
         cwd = os.getcwd()

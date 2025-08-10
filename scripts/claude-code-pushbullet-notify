@@ -3,6 +3,17 @@
 # Claude Code Pushbullet Notify Hook
 # This script is invoked by Claude Code when a session stops
 
+# Capture git info from the current directory (Claude Code's working directory)
+# before changing to the project directory
+if git rev-parse --show-toplevel >/dev/null 2>&1; then
+    export HOOK_GIT_REPO="$(basename "$(git rev-parse --show-toplevel)")"
+    export HOOK_GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+else
+    # Not in a git repo, use current directory name
+    export HOOK_GIT_REPO="$(basename "$PWD")"
+    export HOOK_GIT_BRANCH="main"
+fi
+
 # Get the directory where this script is located (scripts dir)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # Get the project root directory (parent of scripts)
