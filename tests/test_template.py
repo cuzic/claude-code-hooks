@@ -19,7 +19,7 @@ class TestTemplateFormatting:
         """Test basic template formatting."""
         template = "Repository: {GIT_REPO}, Branch: {GIT_BRANCH}"
         variables = {"GIT_REPO": "my-repo", "GIT_BRANCH": "main"}
-        
+
         result = _format_template(template, variables)
         assert result == "Repository: my-repo, Branch: main"
 
@@ -27,7 +27,7 @@ class TestTemplateFormatting:
         """Test template with multiple occurrences of same variable."""
         template = "{GIT_REPO} - {GIT_BRANCH} - {GIT_REPO}"
         variables = {"GIT_REPO": "test", "GIT_BRANCH": "dev"}
-        
+
         result = _format_template(template, variables)
         assert result == "test - dev - test"
 
@@ -35,7 +35,7 @@ class TestTemplateFormatting:
         """Test template with variables not in the dictionary."""
         template = "{GIT_REPO} - {UNKNOWN_VAR}"
         variables = {"GIT_REPO": "repo"}
-        
+
         result = _format_template(template, variables)
         assert result == "repo - {UNKNOWN_VAR}"
 
@@ -53,7 +53,7 @@ class TestTemplateFormatting:
         """Test template without any variables."""
         template = "Static notification title"
         variables = {"GIT_REPO": "repo", "GIT_BRANCH": "main"}
-        
+
         result = _format_template(template, variables)
         assert result == "Static notification title"
 
@@ -66,9 +66,9 @@ class TestTemplateVariables:
         """Test getting all template variables."""
         mock_now = datetime(2024, 1, 15, 14, 30, 45)
         mock_datetime.now.return_value = mock_now
-        
+
         variables = _get_template_variables("my-project", "feature-branch")
-        
+
         assert variables["GIT_REPO"] == "my-project"
         assert variables["GIT_BRANCH"] == "feature-branch"
         assert variables["TIMESTAMP"] == "2024-01-15 14:30:45"
@@ -78,7 +78,7 @@ class TestTemplateVariables:
     def test_get_template_variables_special_chars(self):
         """Test template variables with special characters."""
         variables = _get_template_variables("my-repo/sub", "feature/test-123")
-        
+
         assert variables["GIT_REPO"] == "my-repo/sub"
         assert variables["GIT_BRANCH"] == "feature/test-123"
 
@@ -90,13 +90,11 @@ class TestNotificationWithTemplates:
     @patch("claude_code_pushbullet_notify.CONFIG")
     def test_send_notification_with_title_template(self, mock_config, mock_send):
         """Test sending notification with custom title template."""
-        mock_config.get.return_value = {
-            "title_template": "[{GIT_BRANCH}] {GIT_REPO} - Done"
-        }
+        mock_config.get.return_value = {"title_template": "[{GIT_BRANCH}] {GIT_REPO} - Done"}
         mock_send.return_value = True
-        
+
         _send_notification("awesome-project", "develop", "Task completed")
-        
+
         mock_send.assert_called_once()
         args = mock_send.call_args[0]
         assert args[0] == "[develop] awesome-project - Done"
@@ -109,17 +107,17 @@ class TestNotificationWithTemplates:
         mock_config.get.side_effect = lambda key, default=None: {
             "notification": {
                 "title_template": "Task completed: {GIT_REPO}",
-                "body_template": "Repo: {GIT_REPO}\\nBranch: {GIT_BRANCH}\\nTime: {TIME}"
+                "body_template": "Repo: {GIT_REPO}\\nBranch: {GIT_BRANCH}\\nTime: {TIME}",
             }
         }.get(key, default)
         mock_send.return_value = True
-        
+
         with patch("claude_code_pushbullet_notify.datetime") as mock_datetime:
             mock_now = datetime(2024, 1, 15, 14, 30, 45)
             mock_datetime.now.return_value = mock_now
-            
+
             _send_notification("my-app", "main", "Original body")
-        
+
         mock_send.assert_called_once()
         args = mock_send.call_args[0]
         assert args[0] == "Task completed: my-app"
@@ -133,9 +131,9 @@ class TestNotificationWithTemplates:
         """Test sending notification without templates (fallback to default)."""
         mock_config.get.return_value = {}
         mock_send.return_value = True
-        
+
         _send_notification("default-repo", "master", "Task done")
-        
+
         mock_send.assert_called_once()
         args = mock_send.call_args[0]
         assert args[0] == "claude code task completed default-repo master"
@@ -148,14 +146,12 @@ class TestNotificationWithTemplates:
         """Test notification with timestamp variables."""
         mock_now = datetime(2024, 3, 20, 9, 15, 30)
         mock_datetime.now.return_value = mock_now
-        
-        mock_config.get.return_value = {
-            "title_template": "{GIT_REPO} - {DATE} {TIME}"
-        }
+
+        mock_config.get.return_value = {"title_template": "{GIT_REPO} - {DATE} {TIME}"}
         mock_send.return_value = True
-        
+
         _send_notification("time-test", "main", "Body")
-        
+
         mock_send.assert_called_once()
         args = mock_send.call_args[0]
         assert args[0] == "time-test - 2024-03-20 09:15:30"
@@ -164,13 +160,11 @@ class TestNotificationWithTemplates:
     @patch("claude_code_pushbullet_notify.CONFIG")
     def test_send_notification_escaping(self, mock_config, mock_send):
         """Test that templates handle special characters correctly."""
-        mock_config.get.return_value = {
-            "title_template": "Repo: {GIT_REPO} | Branch: {GIT_BRANCH}"
-        }
+        mock_config.get.return_value = {"title_template": "Repo: {GIT_REPO} | Branch: {GIT_BRANCH}"}
         mock_send.return_value = True
-        
+
         _send_notification("repo-with-dash", "feature/new-thing", "Done")
-        
+
         mock_send.assert_called_once()
         args = mock_send.call_args[0]
         assert args[0] == "Repo: repo-with-dash | Branch: feature/new-thing"

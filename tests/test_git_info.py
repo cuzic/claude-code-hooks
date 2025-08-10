@@ -30,7 +30,7 @@ class TestGitInfo:
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value.stdout = "different-repo\n"
                 mock_run.return_value.returncode = 0
-                
+
                 repo_name, branch_name = get_git_info()
                 # Should use env vars, not subprocess
                 assert repo_name == "env-repo"
@@ -45,18 +45,14 @@ class TestGitInfo:
             # Remove HOOK_GIT_REPO and HOOK_GIT_BRANCH if they exist
             os.environ.pop("HOOK_GIT_REPO", None)
             os.environ.pop("HOOK_GIT_BRANCH", None)
-            
+
             with patch("subprocess.run") as mock_run:
                 # First call for repo name
-                repo_response = subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="/home/user/my-project\n"
-                )
+                repo_response = subprocess.CompletedProcess(args=[], returncode=0, stdout="/home/user/my-project\n")
                 # Second call for branch name
-                branch_response = subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="main\n"
-                )
+                branch_response = subprocess.CompletedProcess(args=[], returncode=0, stdout="main\n")
                 mock_run.side_effect = [repo_response, branch_response]
-                
+
                 repo_name, branch_name = get_git_info()
                 assert repo_name == "my-project"
                 assert branch_name == "main"
@@ -67,14 +63,14 @@ class TestGitInfo:
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("HOOK_GIT_REPO", None)
             os.environ.pop("HOOK_GIT_BRANCH", None)
-            
+
             with patch("subprocess.run") as mock_run:
                 # Simulate git command failure
                 mock_run.side_effect = subprocess.CalledProcessError(128, "git")
-                
+
                 with patch("pathlib.Path.cwd") as mock_cwd:
                     mock_cwd.return_value = Path("/home/user/not-a-repo")
-                    
+
                     repo_name, branch_name = get_git_info()
                     assert repo_name == "not-a-repo"
                     assert branch_name == "main"
@@ -84,16 +80,14 @@ class TestGitInfo:
         # Only HOOK_GIT_REPO is set
         with patch.dict(os.environ, {"HOOK_GIT_REPO": "partial-repo"}):
             os.environ.pop("HOOK_GIT_BRANCH", None)
-            
+
             with patch("subprocess.run") as mock_run:
                 repo_response = subprocess.CompletedProcess(
                     args=[], returncode=0, stdout="/home/user/fallback-project\n"
                 )
-                branch_response = subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="develop\n"
-                )
+                branch_response = subprocess.CompletedProcess(args=[], returncode=0, stdout="develop\n")
                 mock_run.side_effect = [repo_response, branch_response]
-                
+
                 repo_name, branch_name = get_git_info()
                 # Should fallback since both vars are not set
                 assert repo_name == "fallback-project"
@@ -102,16 +96,14 @@ class TestGitInfo:
         # Only HOOK_GIT_BRANCH is set
         with patch.dict(os.environ, {"HOOK_GIT_BRANCH": "partial-branch"}):
             os.environ.pop("HOOK_GIT_REPO", None)
-            
+
             with patch("subprocess.run") as mock_run:
                 repo_response = subprocess.CompletedProcess(
                     args=[], returncode=0, stdout="/home/user/fallback-project\n"
                 )
-                branch_response = subprocess.CompletedProcess(
-                    args=[], returncode=0, stdout="develop\n"
-                )
+                branch_response = subprocess.CompletedProcess(args=[], returncode=0, stdout="develop\n")
                 mock_run.side_effect = [repo_response, branch_response]
-                
+
                 repo_name, branch_name = get_git_info()
                 # Should fallback since both vars are not set
                 assert repo_name == "fallback-project"
@@ -127,38 +119,28 @@ class TestShellScriptIntegration:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_path = Path(tmpdir) / "test-repo"
             repo_path.mkdir()
-            
+
             # Initialize git repo
             subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
             subprocess.run(
-                ["git", "config", "user.email", "test@example.com"],
-                cwd=repo_path, check=True, capture_output=True
+                ["git", "config", "user.email", "test@example.com"], cwd=repo_path, check=True, capture_output=True
             )
-            subprocess.run(
-                ["git", "config", "user.name", "Test User"],
-                cwd=repo_path, check=True, capture_output=True
-            )
-            
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_path, check=True, capture_output=True)
+
             # Create a file and commit
             (repo_path / "test.txt").write_text("test content")
             subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "Initial commit"],
-                cwd=repo_path, check=True, capture_output=True
-            )
-            
+            subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo_path, check=True, capture_output=True)
+
             # Create and checkout a branch
-            subprocess.run(
-                ["git", "checkout", "-b", "test-feature"],
-                cwd=repo_path, check=True, capture_output=True
-            )
-            
+            subprocess.run(["git", "checkout", "-b", "test-feature"], cwd=repo_path, check=True, capture_output=True)
+
             yield repo_path
 
     def test_shell_script_exports_git_info(self, temp_git_repo):
         """Test that the shell script correctly exports git info as environment variables."""
         script_path = Path(__file__).parent.parent / "scripts" / "claude-code-pushbullet-notify"
-        
+
         # Create a test script that sources our script and prints the env vars
         test_script = f"""#!/bin/bash
 cd {temp_git_repo}
@@ -173,21 +155,16 @@ fi
 echo "HOOK_GIT_REPO=$HOOK_GIT_REPO"
 echo "HOOK_GIT_BRANCH=$HOOK_GIT_BRANCH"
 """
-        
-        result = subprocess.run(
-            ["bash", "-c", test_script],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        
+
+        result = subprocess.run(["bash", "-c", test_script], capture_output=True, text=True, check=True)
+
         lines = result.stdout.strip().split("\n")
         env_vars = {}
         for line in lines:
             if "=" in line:
                 key, value = line.split("=", 1)
                 env_vars[key] = value
-        
+
         assert env_vars["HOOK_GIT_REPO"] == "test-repo"
         assert env_vars["HOOK_GIT_BRANCH"] == "test-feature"
 
@@ -206,21 +183,16 @@ fi
 echo "HOOK_GIT_REPO=$HOOK_GIT_REPO"
 echo "HOOK_GIT_BRANCH=$HOOK_GIT_BRANCH"
 """
-            
-            result = subprocess.run(
-                ["bash", "-c", test_script],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            
+
+            result = subprocess.run(["bash", "-c", test_script], capture_output=True, text=True, check=True)
+
             lines = result.stdout.strip().split("\n")
             env_vars = {}
             for line in lines:
                 if "=" in line:
                     key, value = line.split("=", 1)
                     env_vars[key] = value
-            
+
             assert env_vars["HOOK_GIT_REPO"] == Path(tmpdir).name
             assert env_vars["HOOK_GIT_BRANCH"] == "main"
 
@@ -230,12 +202,12 @@ echo "HOOK_GIT_BRANCH=$HOOK_GIT_BRANCH"
         hook_data = {
             "hook_event_name": "Stop",
             "transcript_path": "/dev/null",  # Use /dev/null as a valid but empty file
-            "stop_hook_active": True
+            "stop_hook_active": True,
         }
-        
+
         # Set up the test to run from the temp git repo
         script_path = Path(__file__).parent.parent / "scripts" / "claude-code-pushbullet-notify"
-        
+
         # Create a test that captures what the Python module would see
         test_script = f"""#!/bin/bash
 cd {temp_git_repo}
@@ -255,13 +227,8 @@ print(f"REPO={{os.environ.get(\"HOOK_GIT_REPO\", \"NOT_SET\")}}")
 print(f"BRANCH={{os.environ.get(\"HOOK_GIT_BRANCH\", \"NOT_SET\")}}")
 '
 """
-        
-        result = subprocess.run(
-            ["bash", "-c", test_script],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        
+
+        result = subprocess.run(["bash", "-c", test_script], capture_output=True, text=True, check=True)
+
         assert "REPO=test-repo" in result.stdout
         assert "BRANCH=test-feature" in result.stdout

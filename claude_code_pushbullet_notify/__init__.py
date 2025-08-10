@@ -100,11 +100,11 @@ def get_git_info():
     # First check if the shell script has already captured git info in environment variables
     repo_name = os.environ.get("HOOK_GIT_REPO")
     branch_name = os.environ.get("HOOK_GIT_BRANCH")
-    
+
     if repo_name and branch_name:
         # Use the git info captured by the shell script from the original directory
         return repo_name, branch_name
-    
+
     # Fallback to the old method for testing or when not called via the shell script
     try:
         # Get current working directory from environment or fallback
@@ -129,35 +129,48 @@ def get_git_info():
         return Path.cwd().name, "main"
 
 
+def _extract_text_from_list(content_list):
+    """Extract text from a list of content items."""
+    texts = []
+    for item in content_list:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "text":
+            continue
+        text = item.get("text", "").strip()
+        if text:
+            texts.append(text)
+    return texts
+
+
 def _extract_message_text(content):
     """Extract text from message content (string or list format)."""
     if isinstance(content, str):
         return [content]
-    
+
     if isinstance(content, list):
-        texts = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                text = item.get("text", "").strip()
-                if text:
-                    texts.append(text)
-        return texts
-    
+        return _extract_text_from_list(content)
+
     return []
+
+
+def _is_assistant_message(data):
+    """Check if data represents an assistant message."""
+    if data.get("type") != "assistant":
+        return False
+    if "message" not in data:
+        return False
+    msg = data["message"]
+    return msg.get("role") == "assistant" and "content" in msg
 
 
 def _process_transcript_line(line, line_number):
     """Process a single transcript line and extract assistant messages."""
     try:
         data = json.loads(line)
-        if data.get("type") != "assistant" or "message" not in data:
+        if not _is_assistant_message(data):
             return []
-        
-        msg = data["message"]
-        if msg.get("role") != "assistant" or "content" not in msg:
-            return []
-        
-        return _extract_message_text(msg["content"])
+        return _extract_message_text(data["message"]["content"])
     except json.JSONDecodeError as e:
         logger.debug(f"Line {line_number}: Skipping invalid JSON - {e}")
         return []
@@ -176,13 +189,13 @@ def _format_notification_body(messages, num_lines, max_length):
     """Format messages for notification body."""
     if not messages:
         return "Task completed."
-    
+
     last_messages = messages[-num_lines:] if len(messages) > num_lines else messages
     result = "\n\n".join(last_messages)
-    
+
     if len(result) > max_length:
         result = result[: max_length - 3] + "..."
-    
+
     return result
 
 
@@ -257,82 +270,246 @@ def _handle_test_mode(args):
 
     if args.transcript_path:
         notification_body = get_last_messages_from_transcript(args.transcript_path)
+        transcript_path = args.transcript_path
     else:
         notification_body = "Test mode - no transcript available"
+        transcript_path = None
 
-    _send_notification(repo_name, branch_name, notification_body)
+    _send_notification(repo_name, branch_name, notification_body, transcript_path)
+
+
+def _resolve_variable_content(var_content, variables):
+    """Resolve a variable name to its content if it exists in variables dict."""
+    if variables and var_content in variables:
+        return str(variables[var_content])
+    return var_content
+
+
+def _remove_quotes(text):
+    """Remove surrounding quotes from text if present."""
+    if text.startswith('"') and text.endswith('"'):
+        return text[1:-1]
+    return text
+
+
+def _apply_truncate_function(text, variables):
+    """Apply truncate function to template text."""
+    import re
+    
+    truncate_pattern = r"\{truncate\(\s*([^,)]+?)\s*,\s*(\d+)\s*\)\}"
+
+    def truncate_replace(match):
+        var_content = match.group(1).strip()
+        var_content = _resolve_variable_content(var_content, variables)
+        length = int(match.group(2))
+        if len(var_content) > length:
+            return var_content[: length - 3] + "..."
+        return var_content
+
+    return re.sub(truncate_pattern, truncate_replace, text)
+
+
+def _apply_substr_function(text, variables):
+    """Apply substr function to template text."""
+    import re
+    
+    # Handle simple cases with regex
+    substr_pattern = r"\{substr\(\s*([^,)]+|\w+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)\}"
+
+    def substr_replace(match):
+        var_content = match.group(1).strip()
+        var_content = _resolve_variable_content(var_content, variables)
+        var_content = _remove_quotes(var_content)
+        start = int(match.group(2))
+        length = int(match.group(3))
+        return var_content[start : start + length]
+
+    text = re.sub(substr_pattern, substr_replace, text)
+    
+    # Handle complex cases with commas
+    text = _apply_complex_substr(text, variables)
+    return text
+
+
+def _extract_substr_params(func_content):
+    """Extract parameters from substr function content."""
+    parts = func_content.rsplit(",", 2)
+    if len(parts) != 3:
+        return None, None, None
+    return parts[0].strip(), parts[1].strip(), parts[2].strip()
+
+
+def _process_substr_match(text, start_idx, end_idx, variables):
+    """Process a single substr function match."""
+    func_content = text[start_idx + 8 : end_idx]
+    var_content, start_str, length_str = _extract_substr_params(func_content)
+    
+    if var_content is None:
+        return None
+        
+    var_content = _resolve_variable_content(var_content, variables)
+    var_content = _remove_quotes(var_content)
+    
+    try:
+        start_pos = int(start_str)
+        length_val = int(length_str)
+        replacement = var_content[start_pos : start_pos + length_val]
+        return text[:start_idx] + replacement + text[end_idx + 2 :]
+    except (ValueError, IndexError):
+        return None
+
+
+def _apply_complex_substr(text, variables):
+    """Handle substr functions with content containing commas."""
+    while "{substr(" in text:
+        start_idx = text.find("{substr(")
+        if start_idx == -1:
+            break
+
+        end_idx = text.find(")}", start_idx)
+        if end_idx == -1:
+            break
+
+        new_text = _process_substr_match(text, start_idx, end_idx, variables)
+        if new_text is None:
+            break
+        text = new_text
+    
+    return text
+
+
+def _apply_string_functions(text, variables=None):
+    """Apply string functions like truncate and substr to template.
+
+    Args:
+        text: The template text with function calls
+        variables: Optional dict of template variables to resolve
+    """
+    text = _apply_truncate_function(text, variables)
+    text = _apply_substr_function(text, variables)
+    return text
 
 
 def _format_template(template, variables):
-    """Format a template string with provided variables."""
+    """Format a template string with provided variables and string functions."""
     if template is None:
         return None
     if not template:
         return ""
-    
+
     result = template
+
+    # Apply string functions first (they can use variable names)
+    # Pass variables so functions can resolve variable names
+    result = _apply_string_functions(result, variables)
+
+    # Then replace any remaining variables
     for key, value in variables.items():
         result = result.replace(f"{{{key}}}", str(value))
-    
+
     return result
 
 
-def _get_template_variables(repo_name, branch_name):
-    """Get all available template variables."""
-    now = datetime.now()
-    
+def _get_system_info():
+    """Get system information for template variables."""
     # Get hostname
     try:
         hostname = socket.gethostname()
     except Exception:
         hostname = "unknown"
-    
+
     # Get username
     username = os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
-    
+
     # Get current working directory
     cwd = os.getcwd()
     
     # Get basename of current working directory
-    # Handle edge case where path ends with slash
     cwd_basename = os.path.basename(cwd.rstrip(os.sep)) if cwd != os.sep else ""
     
+    return hostname, username, cwd, cwd_basename
+
+
+def _get_time_variables():
+    """Get time-related template variables."""
+    now = datetime.now()
     return {
-        "GIT_REPO": repo_name,
-        "GIT_BRANCH": branch_name,
         "TIMESTAMP": now.strftime("%Y-%m-%d %H:%M:%S"),
         "DATE": now.strftime("%Y-%m-%d"),
         "TIME": now.strftime("%H:%M:%S"),
+    }
+
+
+def _read_messages_from_transcript(transcript_path):
+    """Read messages from transcript file if it exists."""
+    if not transcript_path:
+        return []
+    if not Path(transcript_path).exists():
+        return []
+    try:
+        return _read_transcript_messages(Path(transcript_path).expanduser())
+    except Exception:
+        return []
+
+
+def _get_message_variables(transcript_path):
+    """Get MSG0, MSG1, MSG2 variables from transcript."""
+    messages = _read_messages_from_transcript(transcript_path)
+    
+    # Reverse so MSG0 is the latest message
+    messages = list(reversed(messages))
+    
+    msg_vars = {}
+    for i in range(3):
+        msg_vars[f"MSG{i}"] = messages[i] if i < len(messages) else ""
+    
+    return msg_vars
+
+
+def _get_template_variables(repo_name, branch_name, transcript_path=None):
+    """Get all available template variables."""
+    hostname, username, cwd, cwd_basename = _get_system_info()
+    
+    variables = {
+        "GIT_REPO": repo_name,
+        "GIT_BRANCH": branch_name,
         "HOSTNAME": hostname,
         "USERNAME": username,
         "CWD": cwd,
         "CWD_BASENAME": cwd_basename,
     }
-
-
-def _send_notification(repo_name, branch_name, notification_body):
-    """Send notification with template-based or standard title format."""
-    variables = _get_template_variables(repo_name, branch_name)
     
+    # Add time variables
+    variables.update(_get_time_variables())
+    
+    # Add message variables
+    variables.update(_get_message_variables(transcript_path))
+
+    return variables
+
+
+def _send_notification(repo_name, branch_name, notification_body, transcript_path=None):
+    """Send notification with template-based or standard title format."""
+    variables = _get_template_variables(repo_name, branch_name, transcript_path)
+
     # Use template from config if available, otherwise use default
     title_template = CONFIG.get("notification", {}).get(
-        "title_template", 
-        "claude code task completed {GIT_REPO} {GIT_BRANCH}"
+        "title_template", "claude code task completed {GIT_REPO} {GIT_BRANCH}"
     )
     title = _format_template(title_template, variables)
-    
+
     # Check if there's a custom body template
     body_template = CONFIG.get("notification", {}).get("body_template")
     if body_template:
         notification_body = _format_template(body_template, variables)
-    
+
     logger.info(f"Sending notification: {title}")
-    
-    if len(notification_body) > 100:
+
+    if notification_body and len(notification_body) > 100:
         logger.debug(f"Notification body: {notification_body[:100]}...")
-    else:
+    elif notification_body:
         logger.debug(f"Notification body: {notification_body}")
-    
+
     result = send_pushbullet_notification(title, notification_body)
     logger.info(f"Notification sent: {result}")
     return result
@@ -350,13 +527,13 @@ def _handle_stop_event(hook_data):
 
     repo_name, branch_name = get_git_info()
     notification_body = get_last_messages_from_transcript(transcript_path)
-    
+
     logger.debug(
         f"Config: num_messages={CONFIG['notification']['num_messages']}, "
         f"max_body_length={CONFIG['notification']['max_body_length']}"
     )
-    
-    _send_notification(repo_name, branch_name, notification_body)
+
+    _send_notification(repo_name, branch_name, notification_body, transcript_path)
 
 
 def _handle_hook_mode(hook_data):
@@ -376,7 +553,7 @@ def _handle_legacy_mode():
     repo_name, branch_name = get_git_info()
     logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
     notification_body = "Test mode - no transcript available"
-    _send_notification(repo_name, branch_name, notification_body)
+    _send_notification(repo_name, branch_name, notification_body, None)
 
 
 def main():
