@@ -378,8 +378,64 @@ def _apply_complex_substr(text, variables):
     return text
 
 
+def _extract_regex_params(func_content):
+    """Extract parameters from regex function content."""
+    parts = func_content.rsplit(",", 1)
+    if len(parts) != 2:
+        return None, None
+    return parts[0].strip(), parts[1].strip()
+
+
+def _apply_regex_pattern(var_content, pattern):
+    """Apply regex pattern to variable content."""
+    import re
+    
+    var_content = _remove_quotes(var_content)
+    pattern = _remove_quotes(pattern)
+    
+    try:
+        regex_match = re.search(pattern, var_content)
+        return regex_match.group(0) if regex_match else ""
+    except re.error:
+        return ""
+
+
+def _process_regex_match(text, start_idx, end_idx, variables):
+    """Process a single regex function match."""
+    func_content = text[start_idx + 7 : end_idx]  # Skip '{regex('
+    
+    var_content, pattern = _extract_regex_params(func_content)
+    if var_content is None:
+        return text[:start_idx] + "" + text[end_idx + 2:]
+    
+    var_content = _resolve_variable_content(var_content, variables)
+    replacement = _apply_regex_pattern(var_content, pattern)
+    
+    return text[:start_idx] + replacement + text[end_idx + 2:]
+
+
+def _apply_regex_function(text, variables):
+    """Apply regex function to extract text matching a pattern.
+    
+    Usage: {regex(text, pattern)}
+    Example: {regex(MSG0, [0-9]+)} - extracts numbers from MSG0
+    """
+    while "{regex(" in text:
+        start_idx = text.find("{regex(")
+        if start_idx == -1:
+            break
+
+        end_idx = text.find(")}", start_idx)
+        if end_idx == -1:
+            break
+
+        text = _process_regex_match(text, start_idx, end_idx, variables)
+    
+    return text
+
+
 def _apply_string_functions(text, variables=None):
-    """Apply string functions like truncate and substr to template.
+    """Apply string functions like truncate, substr, and regex to template.
 
     Args:
         text: The template text with function calls
@@ -387,6 +443,7 @@ def _apply_string_functions(text, variables=None):
     """
     text = _apply_truncate_function(text, variables)
     text = _apply_substr_function(text, variables)
+    text = _apply_regex_function(text, variables)
     return text
 
 
@@ -453,14 +510,14 @@ def _read_messages_from_transcript(transcript_path):
 
 
 def _get_message_variables(transcript_path):
-    """Get MSG0, MSG1, MSG2 variables from transcript."""
+    """Get MSG0-MSG9 variables from transcript."""
     messages = _read_messages_from_transcript(transcript_path)
     
     # Reverse so MSG0 is the latest message
     messages = list(reversed(messages))
     
     msg_vars = {}
-    for i in range(3):
+    for i in range(10):  # MSG0 through MSG9
         msg_vars[f"MSG{i}"] = messages[i] if i < len(messages) else ""
     
     return msg_vars
