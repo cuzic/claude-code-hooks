@@ -10,10 +10,25 @@ This is a Claude Code hook that sends Pushbullet notifications when Claude Code 
 
 ### Local Development
 
-Install dependencies using `uv`:
+1. Install dependencies using `uv`:
 ```bash
 uv venv
 uv pip install -e .
+```
+
+2. Set up configuration:
+```bash
+# Copy the example config
+cp config.toml.example config.toml
+
+# Edit with your settings
+nano config.toml
+```
+
+3. Set up environment variables:
+```bash
+# Create .env file with your Pushbullet API token
+echo "PUSHBULLET_TOKEN=your_token_here" > .env
 ```
 
 ### DevContainer Development
@@ -51,7 +66,8 @@ The project is a Python package (`claude_code_pushbullet_notify`) that:
 Key components:
 - `claude_code_pushbullet_notify/__init__.py`: Main module with all functionality
 - `scripts/claude-code-pushbullet-notify`: Shell script wrapper that activates venv and runs the Python module
-- `config.toml`: TOML configuration for notification settings
+- `config.toml.example`: Example TOML configuration (copy to `config.toml` and customize)
+- `config.toml`: User-specific TOML configuration (not committed to git)
 - `.env`: Environment variables for API tokens (not committed)
 
 The hook is triggered by Claude Code's stop event and processes the transcript path provided in the JSON payload. Configuration supports setting the number of messages to include and maximum notification body length.

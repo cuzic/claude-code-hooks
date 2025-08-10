@@ -47,3 +47,4 @@ Thumbs.db
 # Project specific
 .claude/
 test_transcript.py
+config.toml
