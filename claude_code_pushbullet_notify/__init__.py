@@ -100,34 +100,46 @@ def read_hook_input():
         return None
 
 
-def get_git_info():
-    """Get repository name and branch name from git."""
-    # First check if the shell script has already captured git info in environment variables
+def _get_git_info_from_env():
+    """Get git info from environment variables."""
     repo_name = os.environ.get("HOOK_GIT_REPO")
     branch_name = os.environ.get("HOOK_GIT_BRANCH")
-
     if repo_name and branch_name:
-        # Use the git info captured by the shell script from the original directory
+        return repo_name, branch_name
+    return None, None
+
+
+def _get_repo_name_from_git(cwd):
+    """Get repository name using git command."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], 
+        capture_output=True, text=True, check=True, cwd=cwd
+    )
+    repo_path = Path(result.stdout.strip())
+    return repo_path.name.replace(".git", "")
+
+
+def _get_branch_name_from_git(cwd):
+    """Get branch name using git command."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], 
+        capture_output=True, text=True, check=True, cwd=cwd
+    )
+    return result.stdout.strip()
+
+
+def get_git_info():
+    """Get repository name and branch name from git."""
+    # First check environment variables
+    repo_name, branch_name = _get_git_info_from_env()
+    if repo_name and branch_name:
         return repo_name, branch_name
 
-    # Fallback to the old method for testing or when not called via the shell script
+    # Fallback to git commands
     try:
-        # Get current working directory from environment or fallback
         cwd = os.getcwd()
-
-        # Get repository name
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True, cwd=cwd
-        )
-        repo_path = Path(result.stdout.strip())
-        repo_name = repo_path.name.replace(".git", "")
-
-        # Get branch name
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=True, cwd=cwd
-        )
-        branch_name = result.stdout.strip()
-
+        repo_name = _get_repo_name_from_git(cwd)
+        branch_name = _get_branch_name_from_git(cwd)
         return repo_name, branch_name
     except subprocess.CalledProcessError:
         # If not in a git repo, use the current directory name
@@ -169,16 +181,25 @@ def _is_assistant_message(data):
     return msg.get("role") == "assistant" and "content" in msg
 
 
-def _process_transcript_line(line, line_number):
-    """Process a single transcript line and extract assistant messages."""
+def _parse_json_line(line, line_number):
+    """Parse a JSON line and handle errors."""
     try:
-        data = json.loads(line)
-        if not _is_assistant_message(data):
-            return []
-        return _extract_message_text(data["message"]["content"])
+        return json.loads(line)
     except json.JSONDecodeError as e:
         logger.debug(f"Line {line_number}: Skipping invalid JSON - {e}")
+        return None
+
+
+def _process_transcript_line(line, line_number):
+    """Process a single transcript line and extract assistant messages."""
+    data = _parse_json_line(line, line_number)
+    if data is None:
         return []
+    
+    if not _is_assistant_message(data):
+        return []
+    
+    return _extract_message_text(data["message"]["content"])
 
 
 def _read_transcript_messages(transcript_path):
@@ -188,6 +209,145 @@ def _read_transcript_messages(transcript_path):
         for line_number, line in enumerate(f, 1):
             messages.extend(_process_transcript_line(line, line_number))
     return messages
+
+
+def _calculate_effective_max_length(max_length, reserve_space):
+    """Calculate effective maximum length after reserving space."""
+    effective_max_length = max_length - reserve_space
+    if effective_max_length <= 0:
+        effective_max_length = max_length  # Fallback if reserve_space is too large
+    return effective_max_length
+
+
+def _should_add_overlap(chunks, previous_paragraph, effective_max_length):
+    """Check if overlap should be added from previous paragraph."""
+    return (chunks and previous_paragraph and 
+            len(previous_paragraph) < effective_max_length // 3)
+
+
+def _split_by_sentences(text, max_length):
+    """Split text by sentence boundaries."""
+    sentences = text.replace('. ', '.|').split('|')
+    chunks = []
+    current = ""
+    
+    for sentence in sentences:
+        # If a single sentence is longer than max_length, split by words
+        if len(sentence) > max_length:
+            if current:
+                chunks.append(current)
+                current = ""
+            word_chunks = _split_by_words(sentence, max_length)
+            if word_chunks:
+                chunks.extend(word_chunks[:-1])  # Add all but last
+                current = word_chunks[-1] if word_chunks else ""
+        else:
+            test = current + sentence if current else sentence
+            if len(test) <= max_length:
+                current = test
+            else:
+                if current:
+                    chunks.append(current)
+                current = sentence
+    
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _split_by_characters(text, max_length):
+    """Split text by character boundaries when it cannot be split by words."""
+    chunks = []
+    while text:
+        if len(text) <= max_length:
+            chunks.append(text)
+            break
+        chunks.append(text[:max_length])
+        text = text[max_length:]
+    return chunks
+
+
+def _split_by_words(text, max_length):
+    """Split text by word boundaries."""
+    words = text.split(' ')
+    chunks = []
+    current = ""
+    
+    for word in words:
+        # If a single word is longer than max_length, split it by characters
+        if len(word) > max_length:
+            if current:
+                chunks.append(current)
+                current = ""
+            char_chunks = _split_by_characters(word, max_length)
+            chunks.extend(char_chunks)
+        else:
+            test = current + " " + word if current else word
+            if len(test) <= max_length:
+                current = test
+            else:
+                if current:
+                    chunks.append(current)
+                current = word
+    
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _handle_paragraph_overlap(current_chunk, paragraph, previous_paragraph, 
+                             effective_max_length, chunks):
+    """Handle adding paragraph with potential overlap."""
+    test_with_overlap = previous_paragraph + "\n\n" + paragraph
+    
+    if len(test_with_overlap) <= effective_max_length:
+        # Can fit both with overlap
+        if current_chunk and len(current_chunk + "\n\n" + test_with_overlap) > effective_max_length:
+            # Save current chunk and start new one with overlap
+            chunks.append(current_chunk)
+            return test_with_overlap, True
+        else:
+            # Add to current chunk
+            if current_chunk:
+                return current_chunk + "\n\n" + test_with_overlap, True
+            else:
+                return test_with_overlap, True
+    
+    return current_chunk, False
+
+
+def _process_paragraph(current_chunk, paragraph, previous_paragraph,
+                      effective_max_length, chunks):
+    """Process a single paragraph and update chunks."""
+    # Try to add paragraph to current chunk
+    test_chunk = current_chunk + "\n\n" + paragraph if current_chunk else paragraph
+    
+    if len(test_chunk) <= effective_max_length:
+        # Fits in current chunk
+        return test_chunk, paragraph
+    
+    # Doesn't fit, need to handle it
+    if current_chunk:
+        chunks.append(current_chunk)
+        
+        # Start new chunk with overlap if appropriate
+        if previous_paragraph and len(previous_paragraph) < effective_max_length // 3:
+            new_chunk = previous_paragraph + "\n\n" + paragraph
+            if len(new_chunk) > effective_max_length:
+                new_chunk = paragraph
+        else:
+            new_chunk = paragraph
+    else:
+        new_chunk = paragraph
+    
+    # If single paragraph is too long, split it
+    if len(new_chunk) > effective_max_length:
+        split_chunks = _split_by_sentences(new_chunk, effective_max_length)
+        if split_chunks:
+            chunks.extend(split_chunks[:-1])  # Add all but last
+            new_chunk = split_chunks[-1]
+    
+    return new_chunk, paragraph
 
 
 def _split_message_into_chunks(message, max_length, reserve_space=0):
@@ -204,9 +364,7 @@ def _split_message_into_chunks(message, max_length, reserve_space=0):
     if not message:
         return []
     
-    effective_max_length = max_length - reserve_space
-    if effective_max_length <= 0:
-        effective_max_length = max_length  # Fallback if reserve_space is too large
+    effective_max_length = _calculate_effective_max_length(max_length, reserve_space)
     
     # If message fits in one chunk, return as is
     if len(message) <= effective_max_length:
@@ -218,80 +376,23 @@ def _split_message_into_chunks(message, max_length, reserve_space=0):
     current_chunk = ""
     previous_paragraph = ""  # Store last paragraph for overlap
     
-    for para_idx, paragraph in enumerate(paragraphs):
-        # If this is not the first paragraph and we have a previous chunk,
-        # consider adding overlap from the previous paragraph
-        if chunks and previous_paragraph and len(previous_paragraph) < effective_max_length // 3:
-            # Add previous paragraph as overlap if it's not too long
-            test_with_overlap = previous_paragraph + "\n\n" + paragraph
-            if len(test_with_overlap) <= effective_max_length:
-                # Can fit both with overlap
-                if current_chunk and len(current_chunk + "\n\n" + test_with_overlap) > effective_max_length:
-                    # Save current chunk and start new one with overlap
-                    chunks.append(current_chunk)
-                    current_chunk = test_with_overlap
-                else:
-                    # Add to current chunk
-                    if current_chunk:
-                        current_chunk += "\n\n" + test_with_overlap
-                    else:
-                        current_chunk = test_with_overlap
+    for paragraph in paragraphs:
+        # Check for overlap handling
+        if _should_add_overlap(chunks, previous_paragraph, effective_max_length):
+            new_chunk, handled = _handle_paragraph_overlap(
+                current_chunk, paragraph, previous_paragraph, 
+                effective_max_length, chunks
+            )
+            if handled:
+                current_chunk = new_chunk
                 previous_paragraph = paragraph
                 continue
         
-        # Try to add paragraph to current chunk
-        test_chunk = current_chunk + "\n\n" + paragraph if current_chunk else paragraph
-        
-        if len(test_chunk) <= effective_max_length:
-            # Fits in current chunk
-            current_chunk = test_chunk
-            previous_paragraph = paragraph
-        else:
-            # Doesn't fit, need to handle it
-            if current_chunk:
-                # Save current chunk
-                chunks.append(current_chunk)
-                
-                # Start new chunk with previous paragraph as overlap (if appropriate)
-                if previous_paragraph and len(previous_paragraph) < effective_max_length // 3:
-                    current_chunk = previous_paragraph + "\n\n" + paragraph
-                    # If even with overlap it's too long, split the paragraph
-                    if len(current_chunk) > effective_max_length:
-                        # Just use the new paragraph
-                        current_chunk = paragraph
-                else:
-                    current_chunk = paragraph
-            else:
-                current_chunk = paragraph
-            
-            # If single paragraph is too long, split it by sentences or words
-            if len(current_chunk) > effective_max_length:
-                # Split long paragraph at sentence boundaries first
-                sentences = current_chunk.replace('. ', '.|').split('|')
-                current_chunk = ""
-                for sentence in sentences:
-                    test_sentence = current_chunk + sentence if current_chunk else sentence
-                    if len(test_sentence) <= effective_max_length:
-                        current_chunk = test_sentence
-                    else:
-                        if current_chunk:
-                            chunks.append(current_chunk)
-                        current_chunk = sentence
-                        
-                        # If single sentence is still too long, split by words
-                        if len(current_chunk) > effective_max_length:
-                            words = current_chunk.split(' ')
-                            current_chunk = ""
-                            for word in words:
-                                test_word = current_chunk + " " + word if current_chunk else word
-                                if len(test_word) <= effective_max_length:
-                                    current_chunk = test_word
-                                else:
-                                    if current_chunk:
-                                        chunks.append(current_chunk)
-                                    current_chunk = word
-            
-            previous_paragraph = paragraph
+        # Process paragraph normally
+        current_chunk, previous_paragraph = _process_paragraph(
+            current_chunk, paragraph, previous_paragraph,
+            effective_max_length, chunks
+        )
     
     # Add the last chunk if it exists
     if current_chunk and current_chunk.strip():
@@ -355,12 +456,50 @@ def get_last_messages_from_transcript(transcript_path, num_lines=None):
         return "Task completed."
 
 
-def send_pushbullet_notification(title, body):
-    """Send notification via Pushbullet API."""
-    # Get token from environment variable or config file
+def _get_pushbullet_token():
+    """Get Pushbullet token from environment or config."""
     token = os.environ.get("PUSHBULLET_TOKEN")
     if not token and "token" in CONFIG.get("pushbullet", {}):
         token = CONFIG["pushbullet"]["token"]
+    return token
+
+
+def _send_via_requests(token, payload):
+    """Send notification using requests library."""
+    import requests
+    response = requests.post(
+        "https://api.pushbullet.com/v2/pushes",
+        headers={"Access-Token": token, "Content-Type": "application/json"},
+        json=payload,
+    )
+    return response.status_code == 200
+
+
+def _send_via_curl(token, payload):
+    """Send notification using curl command."""
+    import json
+    result = subprocess.run(
+        [
+            "curl",
+            "-s",
+            "-u",
+            f"{token}:",
+            "-X",
+            "POST",
+            "https://api.pushbullet.com/v2/pushes",
+            "-H",
+            "Content-Type: application/json",
+            "--data-raw",
+            json.dumps(payload),
+        ],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def send_pushbullet_notification(title, body):
+    """Send notification via Pushbullet API."""
+    token = _get_pushbullet_token()
     if not token:
         logger.error("PUSHBULLET_TOKEN not set. Please set it in environment variable or config.toml")
         return False
@@ -368,35 +507,56 @@ def send_pushbullet_notification(title, body):
     payload = {"type": "note", "title": title, "body": body}
 
     try:
-        import requests
-
-        response = requests.post(
-            "https://api.pushbullet.com/v2/pushes",
-            headers={"Access-Token": token, "Content-Type": "application/json"},
-            json=payload,
-        )
-        return response.status_code == 200
+        return _send_via_requests(token, payload)
     except ImportError:
         # Fallback to curl if requests is not available
-        import json
+        return _send_via_curl(token, payload)
 
-        result = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "-u",
-                f"{token}:",
-                "-X",
-                "POST",
-                "https://api.pushbullet.com/v2/pushes",
-                "-H",
-                "Content-Type: application/json",
-                "--data-raw",
-                json.dumps(payload),
-            ],
-            capture_output=True,
-        )
-        return result.returncode == 0
+
+def _get_split_config(max_length, split_enabled):
+    """Get splitting configuration from parameters or config."""
+    if max_length is None:
+        max_length = CONFIG.get("notification", {}).get("max_body_length", DEFAULT_MAX_BODY_LENGTH)
+    if split_enabled is None:
+        split_enabled = CONFIG.get("notification", {}).get("split_long_messages", DEFAULT_SPLIT_LONG_MESSAGES)
+    split_delay_ms = CONFIG.get("notification", {}).get("split_delay_ms", 0)
+    return max_length, split_enabled, split_delay_ms
+
+
+def _calculate_reserve_space(body_length, max_length):
+    """Calculate space needed for numbering in multi-part messages."""
+    estimated_chunks = (body_length // max_length) + 1
+    if estimated_chunks < 10:
+        return 6  # "[1/9] " = 6 chars
+    elif estimated_chunks < 100:
+        return 8  # "[10/99] " = 8 chars
+    else:
+        return 10  # "[100/999] " = 10 chars
+
+
+def _send_single_chunk(title, body, chunks):
+    """Send a single chunk without numbering."""
+    return send_pushbullet_notification(title, chunks[0] if chunks else body)
+
+
+def _send_numbered_chunk(title, chunk, part_num, total_parts):
+    """Send a numbered chunk and log the result."""
+    numbered_title = _add_part_numbers_to_title(title, part_num, total_parts)
+    success = send_pushbullet_notification(numbered_title, chunk)
+    
+    if not success:
+        logger.error(f"Failed to send part {part_num}/{total_parts}")
+    else:
+        logger.info(f"Sent part {part_num}/{total_parts}")
+    
+    return success
+
+
+def _apply_notification_delay(split_delay_ms):
+    """Apply delay between notifications if configured."""
+    if split_delay_ms > 0:
+        import time
+        time.sleep(split_delay_ms / 1000.0)
 
 
 def send_split_notifications(title, body, max_length=None, split_enabled=None):
@@ -411,53 +571,32 @@ def send_split_notifications(title, body, max_length=None, split_enabled=None):
     Returns:
         True if all notifications sent successfully, False otherwise
     """
-    import time
-    
-    # Use config values if not specified
-    if max_length is None:
-        max_length = CONFIG["notification"].get("max_body_length", DEFAULT_MAX_BODY_LENGTH)
-    if split_enabled is None:
-        split_enabled = CONFIG["notification"].get("split_long_messages", DEFAULT_SPLIT_LONG_MESSAGES)
-    
-    # Get optional delay between notifications
-    split_delay_ms = CONFIG["notification"].get("split_delay_ms", 0)
+    max_length, split_enabled, split_delay_ms = _get_split_config(max_length, split_enabled)
     
     # If splitting is disabled or message is short, send as single notification
     if not split_enabled or len(body) <= max_length:
         return send_pushbullet_notification(title, body)
     
-    # Calculate space needed for numbering (e.g., "[10/10] " = 8 chars)
-    # Estimate number of chunks to determine space needed
-    estimated_chunks = (len(body) // max_length) + 1
-    if estimated_chunks < 10:
-        reserve_space = 6  # "[1/9] " = 6 chars
-    elif estimated_chunks < 100:
-        reserve_space = 8  # "[10/99] " = 8 chars
-    else:
-        reserve_space = 10  # "[100/999] " = 10 chars
+    # Calculate space needed for numbering
+    reserve_space = _calculate_reserve_space(len(body), max_length)
     
     # Split the message into chunks
     chunks = _split_message_into_chunks(body, max_length, reserve_space)
     
     # If only one chunk after splitting, send without numbering
     if len(chunks) <= 1:
-        return send_pushbullet_notification(title, chunks[0] if chunks else body)
+        return _send_single_chunk(title, body, chunks)
     
     # Send each chunk with numbering
     all_success = True
     for i, chunk in enumerate(chunks, 1):
-        numbered_title = _add_part_numbers_to_title(title, i, len(chunks))
-        success = send_pushbullet_notification(numbered_title, chunk)
-        
+        success = _send_numbered_chunk(title, chunk, i, len(chunks))
         if not success:
-            logger.error(f"Failed to send part {i}/{len(chunks)}")
             all_success = False
-        else:
-            logger.info(f"Sent part {i}/{len(chunks)}")
         
-        # Add delay between notifications if configured (except for last one)
-        if i < len(chunks) and split_delay_ms > 0:
-            time.sleep(split_delay_ms / 1000.0)
+        # Add delay between notifications (except for last one)
+        if i < len(chunks):
+            _apply_notification_delay(split_delay_ms)
     
     return all_success
 
@@ -492,6 +631,13 @@ def _remove_quotes(text):
     return text
 
 
+def _truncate_text(text, length):
+    """Truncate text to specified length with ellipsis."""
+    if len(text) > length:
+        return text[: length - 3] + "..."
+    return text
+
+
 def _apply_truncate_function(text, variables):
     """Apply truncate function to template text."""
     import re
@@ -502,9 +648,7 @@ def _apply_truncate_function(text, variables):
         var_content = match.group(1).strip()
         var_content = _resolve_variable_content(var_content, variables)
         length = int(match.group(2))
-        if len(var_content) > length:
-            return var_content[: length - 3] + "..."
-        return var_content
+        return _truncate_text(var_content, length)
 
     return re.sub(truncate_pattern, truncate_replace, text)
 
@@ -559,15 +703,25 @@ def _process_substr_match(text, start_idx, end_idx, variables):
         return None
 
 
+def _find_function_bounds(text, func_name):
+    """Find the start and end indices of a function call."""
+    pattern = f"{{{func_name}("
+    start_idx = text.find(pattern)
+    if start_idx == -1:
+        return None, None
+    
+    end_idx = text.find(")}", start_idx)
+    if end_idx == -1:
+        return None, None
+    
+    return start_idx, end_idx
+
+
 def _apply_complex_substr(text, variables):
     """Handle substr functions with content containing commas."""
-    while "{substr(" in text:
-        start_idx = text.find("{substr(")
-        if start_idx == -1:
-            break
-
-        end_idx = text.find(")}", start_idx)
-        if end_idx == -1:
+    while True:
+        start_idx, end_idx = _find_function_bounds(text, "substr")
+        if start_idx is None:
             break
 
         new_text = _process_substr_match(text, start_idx, end_idx, variables)
@@ -620,13 +774,9 @@ def _apply_regex_function(text, variables):
     Usage: {regex(text, pattern)}
     Example: {regex(MSG0, [0-9]+)} - extracts numbers from MSG0
     """
-    while "{regex(" in text:
-        start_idx = text.find("{regex(")
-        if start_idx == -1:
-            break
-
-        end_idx = text.find(")}", start_idx)
-        if end_idx == -1:
+    while True:
+        start_idx, end_idx = _find_function_bounds(text, "regex")
+        if start_idx is None:
             break
 
         text = _process_regex_match(text, start_idx, end_idx, variables)
@@ -680,6 +830,50 @@ def _get_tty_direct():
         return "unknown"
 
 
+def _get_tty_for_pid(pid):
+    """Try to get TTY for a specific PID using ps command."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "tty=", "-p", str(pid)],
+            capture_output=True, text=True, check=True
+        )
+        tty = result.stdout.strip()
+        
+        # Check if we got a valid TTY (not ? or ??)
+        if tty and tty not in ["?", "??", "-"]:
+            # Remove /dev/ prefix if present
+            return tty.replace("/dev/", "") if tty.startswith("/dev/") else tty
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return None
+
+
+def _get_parent_pid_from_proc(pid):
+    """Get parent PID from /proc/{pid}/stat file."""
+    try:
+        stat_path = f"/proc/{pid}/stat"
+        if not os.path.exists(stat_path):
+            return None
+            
+        with open(stat_path, 'r') as f:
+            stat_content = f.read()
+            # Parent PID is the 4th field in stat file
+            # Format: pid (comm) state ppid ...
+            # We need to handle comm which might contain spaces and parentheses
+            close_paren = stat_content.rfind(')')
+            if close_paren == -1:
+                return None
+                
+            fields = stat_content[close_paren + 1:].split()
+            if len(fields) >= 2:
+                parent_pid = int(fields[1])
+                if parent_pid != pid and parent_pid > 1:
+                    return parent_pid
+    except (IOError, ValueError, IndexError):
+        pass
+    return None
+
+
 def _get_tty_from_parent_processes():
     """Get TTY by traversing parent processes using /proc filesystem."""
     try:
@@ -687,48 +881,16 @@ def _get_tty_from_parent_processes():
         
         # Traverse up to 10 parent processes to find a TTY
         for _ in range(10):
-            # Try to get TTY for current PID using ps command
-            try:
-                result = subprocess.run(
-                    ["ps", "-o", "tty=", "-p", str(pid)],
-                    capture_output=True, text=True, check=True
-                )
-                tty = result.stdout.strip()
-                
-                # Check if we got a valid TTY (not ? or ??)
-                if tty and tty not in ["?", "??", "-"]:
-                    # Remove /dev/ prefix if present
-                    return tty.replace("/dev/", "") if tty.startswith("/dev/") else tty
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                pass
+            # Try to get TTY for current PID
+            tty = _get_tty_for_pid(pid)
+            if tty:
+                return tty
             
-            # Get parent PID from /proc/{pid}/stat
-            try:
-                stat_path = f"/proc/{pid}/stat"
-                if os.path.exists(stat_path):
-                    with open(stat_path, 'r') as f:
-                        stat_content = f.read()
-                        # Parent PID is the 4th field in stat file
-                        # Format: pid (comm) state ppid ...
-                        # We need to handle comm which might contain spaces and parentheses
-                        close_paren = stat_content.rfind(')')
-                        if close_paren != -1:
-                            fields = stat_content[close_paren + 1:].split()
-                            if len(fields) >= 2:
-                                parent_pid = int(fields[1])
-                                if parent_pid == pid or parent_pid <= 1:
-                                    # Reached init process or circular reference
-                                    break
-                                pid = parent_pid
-                            else:
-                                break
-                        else:
-                            break
-                else:
-                    # /proc not available (non-Linux system)
-                    break
-            except (IOError, ValueError, IndexError):
+            # Get parent PID and continue traversing
+            parent_pid = _get_parent_pid_from_proc(pid)
+            if parent_pid is None:
                 break
+            pid = parent_pid
                 
         return "unknown"
         
@@ -850,11 +1012,25 @@ def _send_notification(repo_name, branch_name, notification_body, transcript_pat
     return result
 
 
-def _handle_stop_event(hook_data):
-    """Handle Stop event from hook."""
+def _log_stop_event_details(hook_data):
+    """Log details about the stop event."""
     transcript_path = hook_data.get("transcript_path")
     logger.debug(f"Transcript path: {transcript_path}")
     logger.debug(f"Stop hook active: {hook_data.get('stop_hook_active')}")
+    return transcript_path
+
+
+def _log_config_details():
+    """Log configuration details."""
+    logger.debug(
+        f"Config: num_messages={CONFIG['notification']['num_messages']}, "
+        f"max_body_length={CONFIG['notification']['max_body_length']}"
+    )
+
+
+def _handle_stop_event(hook_data):
+    """Handle Stop event from hook."""
+    transcript_path = _log_stop_event_details(hook_data)
 
     if not transcript_path:
         logger.warning("No transcript path provided")
@@ -862,12 +1038,7 @@ def _handle_stop_event(hook_data):
 
     repo_name, branch_name = get_git_info()
     notification_body = get_last_messages_from_transcript(transcript_path)
-
-    logger.debug(
-        f"Config: num_messages={CONFIG['notification']['num_messages']}, "
-        f"max_body_length={CONFIG['notification']['max_body_length']}"
-    )
-
+    _log_config_details()
     _send_notification(repo_name, branch_name, notification_body, transcript_path)
 
 
