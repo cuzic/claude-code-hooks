@@ -22,7 +22,8 @@ load_dotenv(env_path)
 
 # Default configuration
 DEFAULT_NUM_MESSAGES = 3
-DEFAULT_MAX_BODY_LENGTH = 500
+DEFAULT_MAX_BODY_LENGTH = 1000
+DEFAULT_SPLIT_LONG_MESSAGES = True
 
 
 def merge_configs(default, loaded):
@@ -40,7 +41,11 @@ def load_config():
     """Load configuration from config.toml file."""
     config_path = Path(__file__).parent.parent / "config.toml"
     config = {
-        "notification": {"num_messages": DEFAULT_NUM_MESSAGES, "max_body_length": DEFAULT_MAX_BODY_LENGTH},
+        "notification": {
+            "num_messages": DEFAULT_NUM_MESSAGES,
+            "max_body_length": DEFAULT_MAX_BODY_LENGTH,
+            "split_long_messages": DEFAULT_SPLIT_LONG_MESSAGES,
+        },
         "pushbullet": {},
         "logging": {"debug": True, "log_file": "claude-code-pushbullet-notify.log"},
     }
@@ -185,16 +190,98 @@ def _read_transcript_messages(transcript_path):
     return messages
 
 
-def _format_notification_body(messages, num_lines, max_length):
-    """Format messages for notification body."""
+def _split_message_into_chunks(message, max_length, reserve_space=0):
+    """Split a message into chunks at word boundaries.
+    
+    Args:
+        message: The message to split
+        max_length: Maximum length for each chunk
+        reserve_space: Space to reserve for numbering (e.g., "[10/10] " = 8 chars)
+    
+    Returns:
+        List of message chunks
+    """
+    if not message:
+        return []
+    
+    effective_max_length = max_length - reserve_space
+    if effective_max_length <= 0:
+        effective_max_length = max_length  # Fallback if reserve_space is too large
+    
+    # If message fits in one chunk, return as is
+    if len(message) <= effective_max_length:
+        return [message]
+    
+    chunks = []
+    current_chunk = ""
+    words = message.split(" ")
+    
+    for word in words:
+        # If a single word is longer than max length, split it forcefully
+        if len(word) > effective_max_length:
+            # Add current chunk if it exists
+            if current_chunk:
+                chunks.append(current_chunk.rstrip())
+                current_chunk = ""
+            
+            # Split the long word
+            while len(word) > effective_max_length:
+                chunks.append(word[:effective_max_length])
+                word = word[effective_max_length:]
+            
+            # Add remainder as start of new chunk
+            if word:
+                current_chunk = word + " "
+        else:
+            # Check if adding this word would exceed the limit
+            test_chunk = current_chunk + word + " "
+            if len(test_chunk.rstrip()) <= effective_max_length:
+                current_chunk = test_chunk
+            else:
+                # Save current chunk and start new one
+                if current_chunk:
+                    chunks.append(current_chunk.rstrip())
+                current_chunk = word + " "
+    
+    # Add the last chunk if it exists
+    if current_chunk.strip():
+        chunks.append(current_chunk.rstrip())
+    
+    return chunks
+
+
+def _add_part_numbers_to_title(title, part_num, total_parts):
+    """Add part numbers to a title for multi-part messages.
+    
+    Args:
+        title: The original title
+        part_num: Current part number (1-based)
+        total_parts: Total number of parts
+    
+    Returns:
+        Title with part numbers if needed
+    """
+    if total_parts <= 1:
+        return title
+    
+    return f"[{part_num}/{total_parts}] {title}"
+
+
+def _format_notification_body(messages, num_lines, max_length=None):
+    """Format messages for notification body.
+    
+    Note: max_length is now optional as splitting is handled during sending.
+    """
     if not messages:
         return "Task completed."
 
     last_messages = messages[-num_lines:] if len(messages) > num_lines else messages
     result = "\n\n".join(last_messages)
 
-    if len(result) > max_length:
-        result = result[: max_length - 3] + "..."
+    # Only truncate if max_length is explicitly provided and splitting is disabled
+    if max_length and not CONFIG["notification"].get("split_long_messages", True):
+        if len(result) > max_length:
+            result = result[: max_length - 3] + "..."
 
     return result
 
@@ -207,12 +294,12 @@ def get_last_messages_from_transcript(transcript_path, num_lines=None):
     # Use config values if not specified
     if num_lines is None:
         num_lines = CONFIG["notification"]["num_messages"]
-    max_length = CONFIG["notification"]["max_body_length"]
 
     try:
         transcript_path = Path(transcript_path).expanduser()
         messages = _read_transcript_messages(transcript_path)
-        return _format_notification_body(messages, num_lines, max_length)
+        # Don't pass max_length anymore as splitting is handled during sending
+        return _format_notification_body(messages, num_lines)
     except Exception as e:
         logger.error(f"Error reading transcript: {e}")
         return "Task completed."
@@ -260,6 +347,69 @@ def send_pushbullet_notification(title, body):
             capture_output=True,
         )
         return result.returncode == 0
+
+
+def send_split_notifications(title, body, max_length=None, split_enabled=None):
+    """Send notifications, splitting long messages if needed.
+    
+    Args:
+        title: Notification title
+        body: Notification body
+        max_length: Maximum length per notification (uses config if None)
+        split_enabled: Whether to split messages (uses config if None)
+    
+    Returns:
+        True if all notifications sent successfully, False otherwise
+    """
+    import time
+    
+    # Use config values if not specified
+    if max_length is None:
+        max_length = CONFIG["notification"].get("max_body_length", DEFAULT_MAX_BODY_LENGTH)
+    if split_enabled is None:
+        split_enabled = CONFIG["notification"].get("split_long_messages", DEFAULT_SPLIT_LONG_MESSAGES)
+    
+    # Get optional delay between notifications
+    split_delay_ms = CONFIG["notification"].get("split_delay_ms", 0)
+    
+    # If splitting is disabled or message is short, send as single notification
+    if not split_enabled or len(body) <= max_length:
+        return send_pushbullet_notification(title, body)
+    
+    # Calculate space needed for numbering (e.g., "[10/10] " = 8 chars)
+    # Estimate number of chunks to determine space needed
+    estimated_chunks = (len(body) // max_length) + 1
+    if estimated_chunks < 10:
+        reserve_space = 6  # "[1/9] " = 6 chars
+    elif estimated_chunks < 100:
+        reserve_space = 8  # "[10/99] " = 8 chars
+    else:
+        reserve_space = 10  # "[100/999] " = 10 chars
+    
+    # Split the message into chunks
+    chunks = _split_message_into_chunks(body, max_length, reserve_space)
+    
+    # If only one chunk after splitting, send without numbering
+    if len(chunks) <= 1:
+        return send_pushbullet_notification(title, chunks[0] if chunks else body)
+    
+    # Send each chunk with numbering
+    all_success = True
+    for i, chunk in enumerate(chunks, 1):
+        numbered_title = _add_part_numbers_to_title(title, i, len(chunks))
+        success = send_pushbullet_notification(numbered_title, chunk)
+        
+        if not success:
+            logger.error(f"Failed to send part {i}/{len(chunks)}")
+            all_success = False
+        else:
+            logger.info(f"Sent part {i}/{len(chunks)}")
+        
+        # Add delay between notifications if configured (except for last one)
+        if i < len(chunks) and split_delay_ms > 0:
+            time.sleep(split_delay_ms / 1000.0)
+    
+    return all_success
 
 
 def _handle_test_mode(args):
@@ -567,7 +717,8 @@ def _send_notification(repo_name, branch_name, notification_body, transcript_pat
     elif notification_body:
         logger.debug(f"Notification body: {notification_body}")
 
-    result = send_pushbullet_notification(title, notification_body)
+    # Use the new split notification function
+    result = send_split_notifications(title, notification_body)
     logger.info(f"Notification sent: {result}")
     return result
 

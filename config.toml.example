@@ -13,7 +13,17 @@
 num_messages = 3
 
 # Maximum length of notification body (characters)
-max_body_length = 500
+# Each notification chunk will be limited to this size
+max_body_length = 1000
+
+# Split long messages into multiple notifications (default: true)
+# When enabled, messages exceeding max_body_length will be split into multiple parts
+# Each part will be numbered (e.g., [1/3], [2/3], [3/3])
+split_long_messages = true
+
+# Optional: Delay between sending split messages (milliseconds)
+# Uncomment to add a delay between multiple notifications
+# split_delay_ms = 500
 
 # Notification title template
 # Available variables:

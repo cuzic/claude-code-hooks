@@ -9,9 +9,11 @@ A notification system for Claude Code that sends Pushbullet notifications when C
 
 - 🔔 Sends Pushbullet notifications when Claude Code tasks complete
 - 💬 Includes the last N assistant messages in the notification body
+- 📧 Automatically splits long messages into multiple notifications
 - 🔧 Configurable via TOML configuration file
 - 📝 Debug logging for troubleshooting
 - 🌳 Shows Git repository and branch information in notifications
+- 🎨 Customizable notification templates with variables
 
 ## Installation
 
@@ -52,7 +54,20 @@ Edit `config.toml` to customize the behavior:
 num_messages = 3
 
 # Maximum length of notification body (characters)
-max_body_length = 500
+# Each notification chunk will be limited to this size
+max_body_length = 1000
+
+# Split long messages into multiple notifications (default: true)
+# When enabled, messages exceeding max_body_length will be split into multiple parts
+# Each part will be numbered (e.g., [1/3], [2/3], [3/3])
+split_long_messages = true
+
+# Optional: Delay between sending split messages (milliseconds)
+# split_delay_ms = 500
+
+# Custom notification title template (optional)
+# Available variables: {GIT_REPO}, {GIT_BRANCH}, {HOSTNAME}, {USERNAME}, {CWD}, {CWD_BASENAME}, {TIMESTAMP}, {DATE}, {TIME}, {MSG0}-{MSG9}
+title_template = "[{GIT_REPO}] ({GIT_BRANCH}) - Claude Code Task completed"
 
 [pushbullet]
 # Pushbullet API token (can also be set via PUSHBULLET_TOKEN environment variable)
@@ -65,6 +80,15 @@ debug = true
 # Log file path (relative to project directory)
 log_file = "claude-code-stop-notify.log"
 ```
+
+### Message Splitting
+
+When messages exceed `max_body_length`, they are automatically split into multiple notifications:
+
+- **Smart word-boundary splitting**: Messages are split at word boundaries to avoid breaking words
+- **Automatic numbering**: Multi-part messages are numbered (e.g., "[1/3] Title", "[2/3] Title")
+- **Configurable behavior**: Can be disabled by setting `split_long_messages = false`
+- **Optional delay**: Add delay between notifications with `split_delay_ms`
 
 ### Pushbullet Token
 

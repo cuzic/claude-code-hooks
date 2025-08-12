@@ -60,10 +60,16 @@ class TestTranscriptReading:
         with patch("builtins.open", mock_open(read_data=transcript_data)):
             # max_length is handled by CONFIG, not a parameter
             from unittest.mock import patch as config_patch
-            with config_patch.dict('claude_code_pushbullet_notify.CONFIG', {'notification': {'max_body_length': 100, 'num_messages': 3}}):
+            with config_patch.dict('claude_code_pushbullet_notify.CONFIG', {
+                'notification': {
+                    'max_body_length': 100,
+                    'num_messages': 3,
+                    'split_long_messages': True  # With splitting enabled, no truncation
+                }
+            }):
                 result = get_last_messages_from_transcript("dummy.jsonl")
-            assert len(result) <= 100
-            assert result.endswith("...")
+                # When splitting is enabled, full message is returned (truncation happens during send)
+                assert len(result) == 1000
 
     @patch("pathlib.Path.exists")
     def test_get_last_messages_invalid_json(self, mock_exists):

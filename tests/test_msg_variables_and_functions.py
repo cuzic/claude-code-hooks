@@ -168,9 +168,14 @@ class TestStringFunctions:
         result2 = _apply_string_functions(f"{{truncate({text},5)}}")
         assert result2 == "Te..."
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch("claude_code_pushbullet_notify.CONFIG")
-    def test_integration_msg_and_functions(self, mock_config, mock_send):
+    @patch("claude_code_pushbullet_notify.send_split_notifications")
+    @patch.dict("claude_code_pushbullet_notify.CONFIG", {
+        "notification": {
+            "title_template": "{GIT_REPO}: {truncate(MSG0, 30)}",
+            "body_template": "Latest: {MSG0}\nPrevious: {truncate(MSG1, 20)}",
+        }
+    })
+    def test_integration_msg_and_functions(self, mock_send):
         """Test integration of MSG variables with string functions."""
         messages = [
             "This is the first very long message that contains a lot of information",
@@ -181,10 +186,6 @@ class TestStringFunctions:
         transcript_path = self.create_test_transcript(messages)
 
         try:
-            mock_config.get.return_value = {
-                "title_template": "{GIT_REPO}: {truncate(MSG0, 30)}",
-                "body_template": "Latest: {MSG0}\nPrevious: {truncate(MSG1, 20)}",
-            }
             mock_send.return_value = True
 
             _send_notification("my-repo", "main", "ignored", transcript_path)
