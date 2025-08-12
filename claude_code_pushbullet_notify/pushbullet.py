@@ -101,15 +101,13 @@ def _calculate_reserve_space(body_length, max_length):
 
 def _send_single_chunk(title, body, chunks):
     """Send a single chunk without numbering."""
-    import claude_code_pushbullet_notify
-    return claude_code_pushbullet_notify.send_pushbullet_notification(title, chunks[0] if chunks else body)
+    return send_pushbullet_notification(title, chunks[0] if chunks else body)
 
 
 def _send_numbered_chunk(title, chunk, part_num, total_parts):
     """Send a numbered chunk and log the result."""
     numbered_title = _add_part_numbers_to_title(title, part_num, total_parts)
-    import claude_code_pushbullet_notify
-    success = claude_code_pushbullet_notify.send_pushbullet_notification(numbered_title, chunk)
+    success = send_pushbullet_notification(numbered_title, chunk)
     
     if not success:
         logger.error(f"Failed to send part {part_num}/{total_parts}")
@@ -142,9 +140,7 @@ def send_split_notifications(title, body, max_length=None, split_enabled=None):
     
     # If splitting is disabled or message is short, send as single notification
     if not split_enabled or len(body) <= max_length:
-        # Import here to allow proper mocking
-        import claude_code_pushbullet_notify
-        return claude_code_pushbullet_notify.send_pushbullet_notification(title, body)
+        return send_pushbullet_notification(title, body)
     
     # Calculate space needed for numbering
     reserve_space = _calculate_reserve_space(len(body), max_length)
@@ -174,19 +170,18 @@ def send_split_notifications(title, body, max_length=None, split_enabled=None):
 
 def _send_notification(repo_name, branch_name, notification_body, transcript_path=None):
     """Send notification with template-based or standard title format."""
-    import claude_code_pushbullet_notify
-    variables = claude_code_pushbullet_notify._get_template_variables(repo_name, branch_name, transcript_path)
+    variables = _get_template_variables(repo_name, branch_name, transcript_path)
 
     # Use template from config if available, otherwise use default
-    title_template = claude_code_pushbullet_notify.CONFIG.get("notification", {}).get(
+    title_template = CONFIG.get("notification", {}).get(
         "title_template", "claude code task completed {GIT_REPO} {GIT_BRANCH}"
     )
-    title = claude_code_pushbullet_notify._format_template(title_template, variables)
+    title = _format_template(title_template, variables)
 
     # Check if there's a custom body template
-    body_template = claude_code_pushbullet_notify.CONFIG.get("notification", {}).get("body_template")
+    body_template = CONFIG.get("notification", {}).get("body_template")
     if body_template:
-        notification_body = claude_code_pushbullet_notify._format_template(body_template, variables)
+        notification_body = _format_template(body_template, variables)
 
     logger.info(f"Sending notification: {title}")
 
@@ -196,7 +191,7 @@ def _send_notification(repo_name, branch_name, notification_body, transcript_pat
         logger.debug(f"Notification body: {notification_body}")
 
     # Use the new split notification function
-    result = claude_code_pushbullet_notify.send_split_notifications(title, notification_body)
+    result = send_split_notifications(title, notification_body)
     logger.info(f"Notification sent: {result}")
     return result
 
@@ -205,13 +200,12 @@ def _send_notification(repo_name, branch_name, notification_body, transcript_pat
 
 def _handle_test_mode(args):
     """Handle test mode execution."""
-    import claude_code_pushbullet_notify
     logger.info("Running in test mode")
-    repo_name, branch_name = claude_code_pushbullet_notify.get_git_info()
+    repo_name, branch_name = get_git_info()
     logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
 
     if args.transcript_path:
-        notification_body = claude_code_pushbullet_notify.get_last_messages_from_transcript(args.transcript_path)
+        notification_body = get_last_messages_from_transcript(args.transcript_path)
         transcript_path = args.transcript_path
     else:
         notification_body = "Test mode - no transcript available"
@@ -238,15 +232,14 @@ def _log_config_details():
 
 def _handle_stop_event(hook_data):
     """Handle Stop event from hook."""
-    import claude_code_pushbullet_notify
     transcript_path = _log_stop_event_details(hook_data)
 
     if not transcript_path:
         logger.warning("No transcript path provided")
         return
 
-    repo_name, branch_name = claude_code_pushbullet_notify.get_git_info()
-    notification_body = claude_code_pushbullet_notify.get_last_messages_from_transcript(transcript_path)
+    repo_name, branch_name = get_git_info()
+    notification_body = get_last_messages_from_transcript(transcript_path)
     _log_config_details()
     _send_notification(repo_name, branch_name, notification_body, transcript_path)
 
@@ -264,9 +257,8 @@ def _handle_hook_mode(hook_data):
 
 def _handle_legacy_mode():
     """Handle legacy fallback mode."""
-    import claude_code_pushbullet_notify
     logger.info("No JSON input received. Running in legacy test mode")
-    repo_name, branch_name = claude_code_pushbullet_notify.get_git_info()
+    repo_name, branch_name = get_git_info()
     logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
     notification_body = "Test mode - no transcript available"
     _send_notification(repo_name, branch_name, notification_body, None)
@@ -276,7 +268,6 @@ def _handle_legacy_mode():
 
 def main():
     """Main function for the Claude Code hook."""
-    import claude_code_pushbullet_notify
     parser = argparse.ArgumentParser(description="Claude Code Pushbullet notification hook")
     parser.add_argument("--test", action="store_true", help="Run in test mode")
     parser.add_argument("--transcript-path", help="Path to transcript file for testing")
@@ -286,7 +277,7 @@ def main():
         _handle_test_mode(args)
         return
 
-    hook_data = claude_code_pushbullet_notify.read_hook_input()
+    hook_data = read_hook_input()
     if hook_data:
         _handle_hook_mode(hook_data)
     else:

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from claude_code_pushbullet_notify import get_git_info
+from claude_code_pushbullet_notify.template import get_git_info
 
 
 class TestGitInfo:

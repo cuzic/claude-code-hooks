@@ -5,11 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from claude_code_pushbullet_notify import (
-    _format_template,
-    _get_template_variables,
-    _send_notification,
-)
+from claude_code_pushbullet_notify.template import _format_template, _get_template_variables
+from claude_code_pushbullet_notify.pushbullet import _send_notification
 
 
 class TestTemplateFormatting:
@@ -61,7 +58,7 @@ class TestTemplateFormatting:
 class TestTemplateVariables:
     """Test template variable generation."""
 
-    @patch("claude_code_pushbullet_notify.datetime")
+    @patch("claude_code_pushbullet_notify.template.datetime")
     def test_get_template_variables(self, mock_datetime):
         """Test getting all template variables."""
         mock_now = datetime(2024, 1, 15, 14, 30, 45)
@@ -86,11 +83,12 @@ class TestTemplateVariables:
 class TestNotificationWithTemplates:
     """Test notification sending with templates."""
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch("claude_code_pushbullet_notify.CONFIG")
-    def test_send_notification_with_title_template(self, mock_config, mock_send):
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
+        "notification": {"title_template": "[{GIT_BRANCH}] {GIT_REPO} - Done"}
+    })
+    def test_send_notification_with_title_template(self, mock_send):
         """Test sending notification with custom title template."""
-        mock_config.get.return_value = {"title_template": "[{GIT_BRANCH}] {GIT_REPO} - Done"}
         mock_send.return_value = True
 
         _send_notification("awesome-project", "develop", "Task completed")
@@ -100,19 +98,18 @@ class TestNotificationWithTemplates:
         assert args[0] == "[develop] awesome-project - Done"
         assert args[1] == "Task completed"
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch("claude_code_pushbullet_notify.CONFIG")
-    def test_send_notification_with_body_template(self, mock_config, mock_send):
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
+        "notification": {
+            "title_template": "Task completed: {GIT_REPO}",
+            "body_template": "Repo: {GIT_REPO}\nBranch: {GIT_BRANCH}\nTime: {TIME}",
+        }
+    })
+    def test_send_notification_with_body_template(self, mock_send):
         """Test sending notification with custom body template."""
-        mock_config.get.side_effect = lambda key, default=None: {
-            "notification": {
-                "title_template": "Task completed: {GIT_REPO}",
-                "body_template": "Repo: {GIT_REPO}\\nBranch: {GIT_BRANCH}\\nTime: {TIME}",
-            }
-        }.get(key, default)
         mock_send.return_value = True
 
-        with patch("claude_code_pushbullet_notify.datetime") as mock_datetime:
+        with patch("claude_code_pushbullet_notify.template.datetime") as mock_datetime:
             mock_now = datetime(2024, 1, 15, 14, 30, 45)
             mock_datetime.now.return_value = mock_now
 
@@ -125,11 +122,12 @@ class TestNotificationWithTemplates:
         assert "Branch: main" in args[1]
         assert "Time: 14:30:45" in args[1]
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch("claude_code_pushbullet_notify.CONFIG")
-    def test_send_notification_no_template(self, mock_config, mock_send):
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
+        "notification": {}
+    })
+    def test_send_notification_no_template(self, mock_send):
         """Test sending notification without templates (fallback to default)."""
-        mock_config.get.return_value = {}
         mock_send.return_value = True
 
         _send_notification("default-repo", "master", "Task done")
@@ -139,15 +137,16 @@ class TestNotificationWithTemplates:
         assert args[0] == "claude code task completed default-repo master"
         assert args[1] == "Task done"
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch("claude_code_pushbullet_notify.CONFIG")
-    @patch("claude_code_pushbullet_notify.datetime")
-    def test_send_notification_with_timestamp(self, mock_datetime, mock_config, mock_send):
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
+        "notification": {"title_template": "{GIT_REPO} - {DATE} {TIME}"}
+    })
+    @patch("claude_code_pushbullet_notify.template.datetime")
+    def test_send_notification_with_timestamp(self, mock_datetime, mock_send):
         """Test notification with timestamp variables."""
         mock_now = datetime(2024, 3, 20, 9, 15, 30)
         mock_datetime.now.return_value = mock_now
 
-        mock_config.get.return_value = {"title_template": "{GIT_REPO} - {DATE} {TIME}"}
         mock_send.return_value = True
 
         _send_notification("time-test", "main", "Body")
@@ -156,11 +155,12 @@ class TestNotificationWithTemplates:
         args = mock_send.call_args[0]
         assert args[0] == "time-test - 2024-03-20 09:15:30"
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch("claude_code_pushbullet_notify.CONFIG")
-    def test_send_notification_escaping(self, mock_config, mock_send):
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
+        "notification": {"title_template": "Repo: {GIT_REPO} | Branch: {GIT_BRANCH}"}
+    })
+    def test_send_notification_escaping(self, mock_send):
         """Test that templates handle special characters correctly."""
-        mock_config.get.return_value = {"title_template": "Repo: {GIT_REPO} | Branch: {GIT_BRANCH}"}
         mock_send.return_value = True
 
         _send_notification("repo-with-dash", "feature/new-thing", "Done")

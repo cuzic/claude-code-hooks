@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from claude_code_pushbullet_notify import (
+from claude_code_pushbullet_notify.template import (
     _apply_string_functions,
     _format_template,
     _get_template_variables,

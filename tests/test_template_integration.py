@@ -9,14 +9,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 import tomllib
 
-from claude_code_pushbullet_notify import (
-    _format_template,
-    _get_template_variables,
-    _handle_stop_event,
-    _send_notification,
-    load_config,
-    main,
-)
+from claude_code_pushbullet_notify.template import _format_template, _get_template_variables
+from claude_code_pushbullet_notify.pushbullet import _handle_stop_event, _send_notification, main
+from claude_code_pushbullet_notify.config import load_config
 
 
 class TestTemplateIntegration:
@@ -31,15 +26,15 @@ class TestTemplateIntegration:
     @pytest.fixture
     def mock_pushbullet(self):
         """Mock the Pushbullet notification sending."""
-        with patch("claude_code_pushbullet_notify.send_pushbullet_notification") as mock:
+        with patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification") as mock:
             mock.return_value = True
             yield mock
 
     def test_default_template_from_config(self, temp_config_dir, mock_pushbullet):
         """Test that default template from config.toml is used correctly."""
         # Directly use CONFIG dict instead of trying to load from file
-        with patch(
-            "claude_code_pushbullet_notify.CONFIG",
+        with patch.dict(
+            "claude_code_pushbullet_notify.config.CONFIG",
             {
                 "notification": {
                     "num_messages": 3,
@@ -57,8 +52,8 @@ class TestTemplateIntegration:
 
     def test_body_template_overrides_transcript(self, temp_config_dir, mock_pushbullet):
         """Test that body template overrides transcript messages."""
-        with patch(
-            "claude_code_pushbullet_notify.CONFIG",
+        with patch.dict(
+            "claude_code_pushbullet_notify.config.CONFIG",
             {
                 "notification": {
                     "title_template": "{GIT_REPO} - {GIT_BRANCH}",
@@ -66,7 +61,7 @@ class TestTemplateIntegration:
                 }
             },
         ):
-            with patch("claude_code_pushbullet_notify.datetime") as mock_dt:
+            with patch("claude_code_pushbullet_notify.template.datetime") as mock_dt:
                 mock_dt.now.return_value = datetime(2024, 1, 15, 10, 30, 0)
                 _send_notification("test-app", "main", "Original body text")
 
@@ -80,8 +75,8 @@ class TestTemplateIntegration:
 
     def test_template_with_special_characters(self, mock_pushbullet):
         """Test templates with special characters in repo/branch names."""
-        with patch(
-            "claude_code_pushbullet_notify.CONFIG",
+        with patch.dict(
+            "claude_code_pushbullet_notify.config.CONFIG",
             {"notification": {"title_template": "Repo: {GIT_REPO} | Branch: {GIT_BRANCH}"}},
         ):
             _send_notification("my-repo/sub-module", "feature/ABC-123", "Done")
@@ -94,8 +89,8 @@ class TestTemplateIntegration:
         """Test template using all available variables."""
         template = "{GIT_REPO} @ {GIT_BRANCH} - {DATE} {TIME} - Full: {TIMESTAMP}"
 
-        with patch("claude_code_pushbullet_notify.CONFIG", {"notification": {"title_template": template}}):
-            with patch("claude_code_pushbullet_notify.datetime") as mock_dt:
+        with patch.dict("claude_code_pushbullet_notify.config.CONFIG", {"notification": {"title_template": template}}):
+            with patch("claude_code_pushbullet_notify.template.datetime") as mock_dt:
                 mock_dt.now.return_value = datetime(2024, 12, 25, 15, 45, 30)
                 _send_notification("xmas-project", "release", "Merry Christmas!")
 
@@ -108,7 +103,7 @@ class TestTemplateIntegration:
 
     def test_empty_template_fallback(self, mock_pushbullet):
         """Test fallback when template is empty string."""
-        with patch("claude_code_pushbullet_notify.CONFIG", {"notification": {"title_template": ""}}):
+        with patch.dict("claude_code_pushbullet_notify.config.CONFIG", {"notification": {"title_template": ""}}):
             _send_notification("fallback-repo", "main", "Body")
 
         mock_pushbullet.assert_called_once()
@@ -117,7 +112,7 @@ class TestTemplateIntegration:
 
     def test_missing_template_uses_default(self, mock_pushbullet):
         """Test that missing template configuration uses default."""
-        with patch("claude_code_pushbullet_notify.CONFIG", {"notification": {}}):
+        with patch.dict("claude_code_pushbullet_notify.config.CONFIG", {"notification": {}}):
             _send_notification("default-test", "develop", "Content")
 
         mock_pushbullet.assert_called_once()
@@ -125,38 +120,41 @@ class TestTemplateIntegration:
         # Should use the hardcoded default
         assert title == "claude code task completed default-test develop"
 
-    @patch("sys.argv", ["script"])
-    def test_main_with_custom_template(self, mock_pushbullet):
+    @patch("claude_code_pushbullet_notify.pushbullet.argparse.ArgumentParser.parse_args")
+    @patch("sys.stdin")
+    def test_main_with_custom_template(self, mock_stdin, mock_parse_args, mock_pushbullet):
         """Test main function with custom template configuration."""
+        from argparse import Namespace
+        import json
+        
         hook_data = {"hook_event_name": "Stop", "transcript_path": "/dev/null"}
+        mock_stdin.read.return_value = json.dumps(hook_data)
+        mock_parse_args.return_value = Namespace(test=False, transcript_path=None)
 
-        with patch("claude_code_pushbullet_notify.read_hook_input") as mock_input:
-            mock_input.return_value = hook_data
-
-            with patch(
-                "claude_code_pushbullet_notify.CONFIG",
-                {
-                    "notification": {
-                        "num_messages": 3,
-                        "max_body_length": 500,
-                        "title_template": "✅ {GIT_REPO} ({GIT_BRANCH}) - Done!",
-                        "body_template": "Task completed successfully!",
-                    }
-                },
-            ):
-                with patch("claude_code_pushbullet_notify.get_git_info") as mock_git:
-                    mock_git.return_value = ("awesome-app", "production")
-                    main()
+        with patch.dict(
+            "claude_code_pushbullet_notify.config.CONFIG",
+            {
+                "notification": {
+                    "num_messages": 3,
+                    "max_body_length": 500,
+                    "title_template": "✅ {GIT_REPO} ({GIT_BRANCH}) - Done!",
+                    "body_template": "Task completed successfully!",
+                }
+            },
+        ):
+            with patch("claude_code_pushbullet_notify.transcript.get_last_messages_from_transcript") as mock_messages:
+                mock_messages.return_value = "Task completed successfully!"
+                main()
 
         mock_pushbullet.assert_called_once()
         title, body = mock_pushbullet.call_args[0]
-        assert title == "✅ awesome-app (production) - Done!"
+        assert title == "✅ claude-code-pushbullet-notify (main) - Done!"
         assert body == "Task completed successfully!"
 
     def test_template_variable_case_sensitivity(self, mock_pushbullet):
         """Test that template variables are case-sensitive."""
-        with patch(
-            "claude_code_pushbullet_notify.CONFIG",
+        with patch.dict(
+            "claude_code_pushbullet_notify.config.CONFIG",
             {"notification": {"title_template": "{git_repo} vs {GIT_REPO} - {Git_Branch} vs {GIT_BRANCH}"}},
         ):
             _send_notification("test", "main", "Body")
@@ -172,8 +170,8 @@ class TestTemplateIntegration:
 
     def test_template_with_unicode(self, mock_pushbullet):
         """Test templates with Unicode characters."""
-        with patch(
-            "claude_code_pushbullet_notify.CONFIG",
+        with patch.dict(
+            "claude_code_pushbullet_notify.config.CONFIG",
             {
                 "notification": {
                     "title_template": "📦 {GIT_REPO} → {GIT_BRANCH} ✨",
@@ -191,11 +189,11 @@ class TestTemplateIntegration:
 
     def test_template_with_newlines(self, mock_pushbullet):
         """Test body template with proper newline handling."""
-        with patch(
-            "claude_code_pushbullet_notify.CONFIG",
+        with patch.dict(
+            "claude_code_pushbullet_notify.config.CONFIG",
             {"notification": {"body_template": "Line 1: {GIT_REPO}\nLine 2: {GIT_BRANCH}\n\nLine 4: {DATE}"}},
         ):
-            with patch("claude_code_pushbullet_notify.datetime") as mock_dt:
+            with patch("claude_code_pushbullet_notify.template.datetime") as mock_dt:
                 mock_dt.now.return_value = datetime(2024, 3, 15, 0, 0, 0)
                 _send_notification("test", "main", "Ignored")
 
@@ -209,8 +207,8 @@ class TestTemplateIntegration:
 
     def test_repeated_variables_in_template(self, mock_pushbullet):
         """Test that repeated variables are all replaced."""
-        with patch(
-            "claude_code_pushbullet_notify.CONFIG",
+        with patch.dict(
+            "claude_code_pushbullet_notify.config.CONFIG",
             {"notification": {"title_template": "{GIT_REPO} - {GIT_BRANCH} - {GIT_REPO} again"}},
         ):
             _send_notification("repeat-test", "branch", "Body")
@@ -219,14 +217,14 @@ class TestTemplateIntegration:
         title, _ = mock_pushbullet.call_args[0]
         assert title == "repeat-test - branch - repeat-test again"
 
-    @patch("claude_code_pushbullet_notify.get_git_info")
+    @patch("claude_code_pushbullet_notify.template.get_git_info")
     def test_env_variables_integration(self, mock_git_info, mock_pushbullet):
         """Test template with environment variables for git info."""
         # Mock get_git_info to return env values
         mock_git_info.return_value = ("env-repo", "env-branch")
 
-        with patch(
-            "claude_code_pushbullet_notify.CONFIG",
+        with patch.dict(
+            "claude_code_pushbullet_notify.config.CONFIG",
             {"notification": {"title_template": "From env: {GIT_REPO}/{GIT_BRANCH}"}},
         ):
             repo, branch = mock_git_info()

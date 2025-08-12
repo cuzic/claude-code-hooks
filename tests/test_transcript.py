@@ -6,7 +6,7 @@ from unittest.mock import patch, mock_open, MagicMock
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from claude_code_pushbullet_notify import get_last_messages_from_transcript
+from claude_code_pushbullet_notify.transcript import get_last_messages_from_transcript
 
 
 class TestTranscriptReading:
@@ -60,7 +60,7 @@ class TestTranscriptReading:
         with patch("builtins.open", mock_open(read_data=transcript_data)):
             # max_length is handled by CONFIG, not a parameter
             from unittest.mock import patch as config_patch
-            with config_patch.dict('claude_code_pushbullet_notify.CONFIG', {
+            with config_patch.dict('claude_code_pushbullet_notify.config.CONFIG', {
                 'notification': {
                     'max_body_length': 100,
                     'num_messages': 3,

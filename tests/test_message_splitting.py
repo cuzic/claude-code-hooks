@@ -6,11 +6,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from claude_code_pushbullet_notify import (
-    _split_message_into_chunks,
-    _add_part_numbers_to_title,
-    send_split_notifications,
-)
+from claude_code_pushbullet_notify.transcript import _split_message_into_chunks, _add_part_numbers_to_title
+from claude_code_pushbullet_notify.pushbullet import send_split_notifications
 
 
 class TestMessageSplitting:
@@ -169,8 +166,8 @@ class TestPartNumbering:
 class TestSplitNotifications:
     """Test suite for split notification sending."""
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.CONFIG", {
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
         "notification": {"max_body_length": 100, "split_long_messages": True}
     })
     def test_send_split_notifications_short(self, mock_send):
@@ -182,8 +179,8 @@ class TestSplitNotifications:
         assert result is True
         mock_send.assert_called_once_with("Test Title", "Short message")
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.CONFIG", {
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
         "notification": {"max_body_length": 50, "split_long_messages": True}
     })
     def test_send_split_notifications_long(self, mock_send):
@@ -200,8 +197,8 @@ class TestSplitNotifications:
         assert "[1/" in calls[0][0][0]
         assert "[2/" in calls[1][0][0]
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.CONFIG", {
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
         "notification": {"max_body_length": 50, "split_long_messages": False}
     })
     def test_send_split_notifications_disabled(self, mock_send):
@@ -216,8 +213,8 @@ class TestSplitNotifications:
         mock_send.assert_called_once()
 
     @patch("time.sleep")
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.CONFIG", {
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
         "notification": {"max_body_length": 50, "split_long_messages": True, "split_delay_ms": 500}
     })
     def test_send_split_notifications_with_delay(self, mock_send, mock_sleep):
@@ -233,8 +230,8 @@ class TestSplitNotifications:
         assert mock_sleep.call_count == mock_send.call_count - 1
         mock_sleep.assert_called_with(0.5)  # 500ms = 0.5s
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.CONFIG", {
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
         "notification": {"max_body_length": 50, "split_long_messages": True}
     })
     def test_send_split_notifications_partial_failure(self, mock_send):
@@ -255,8 +252,8 @@ class TestSplitNotifications:
         assert result is False
         assert mock_send.call_count == num_chunks
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.CONFIG", {
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
         "notification": {"max_body_length": 100, "split_long_messages": True}
     })
     def test_send_split_notifications_empty_body(self, mock_send):
@@ -268,7 +265,7 @@ class TestSplitNotifications:
         assert result is True
         mock_send.assert_called_once_with("Test Title", "")
 
-    @patch("claude_code_pushbullet_notify.send_pushbullet_notification")
+    @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
     def test_send_split_notifications_explicit_params(self, mock_send):
         """Test with explicitly provided parameters."""
         mock_send.return_value = True
