@@ -205,12 +205,13 @@ def _send_notification(repo_name, branch_name, notification_body, transcript_pat
 
 def _handle_test_mode(args):
     """Handle test mode execution."""
+    import claude_code_pushbullet_notify
     logger.info("Running in test mode")
-    repo_name, branch_name = get_git_info()
+    repo_name, branch_name = claude_code_pushbullet_notify.get_git_info()
     logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
 
     if args.transcript_path:
-        notification_body = get_last_messages_from_transcript(args.transcript_path)
+        notification_body = claude_code_pushbullet_notify.get_last_messages_from_transcript(args.transcript_path)
         transcript_path = args.transcript_path
     else:
         notification_body = "Test mode - no transcript available"
@@ -237,14 +238,15 @@ def _log_config_details():
 
 def _handle_stop_event(hook_data):
     """Handle Stop event from hook."""
+    import claude_code_pushbullet_notify
     transcript_path = _log_stop_event_details(hook_data)
 
     if not transcript_path:
         logger.warning("No transcript path provided")
         return
 
-    repo_name, branch_name = get_git_info()
-    notification_body = get_last_messages_from_transcript(transcript_path)
+    repo_name, branch_name = claude_code_pushbullet_notify.get_git_info()
+    notification_body = claude_code_pushbullet_notify.get_last_messages_from_transcript(transcript_path)
     _log_config_details()
     _send_notification(repo_name, branch_name, notification_body, transcript_path)
 
@@ -262,8 +264,9 @@ def _handle_hook_mode(hook_data):
 
 def _handle_legacy_mode():
     """Handle legacy fallback mode."""
+    import claude_code_pushbullet_notify
     logger.info("No JSON input received. Running in legacy test mode")
-    repo_name, branch_name = get_git_info()
+    repo_name, branch_name = claude_code_pushbullet_notify.get_git_info()
     logger.info(f"Repository: {repo_name}, Branch: {branch_name}")
     notification_body = "Test mode - no transcript available"
     _send_notification(repo_name, branch_name, notification_body, None)
@@ -273,6 +276,7 @@ def _handle_legacy_mode():
 
 def main():
     """Main function for the Claude Code hook."""
+    import claude_code_pushbullet_notify
     parser = argparse.ArgumentParser(description="Claude Code Pushbullet notification hook")
     parser.add_argument("--test", action="store_true", help="Run in test mode")
     parser.add_argument("--transcript-path", help="Path to transcript file for testing")
@@ -282,7 +286,7 @@ def main():
         _handle_test_mode(args)
         return
 
-    hook_data = read_hook_input()
+    hook_data = claude_code_pushbullet_notify.read_hook_input()
     if hook_data:
         _handle_hook_mode(hook_data)
     else:

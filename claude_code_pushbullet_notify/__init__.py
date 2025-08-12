@@ -3,6 +3,13 @@ Claude Code hook for sending Pushbullet notifications when tasks complete.
 Reads JSON from stdin and processes transcript files.
 """
 
+# Import modules that tests need to patch
+from datetime import datetime
+import subprocess
+import os
+import socket
+import logging
+
 # Import configuration first
 from .config import (
     CONFIG,

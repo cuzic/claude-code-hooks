@@ -142,20 +142,23 @@ def _get_tty_from_parent_processes():
 
 def _get_system_info():
     """Get system information for template variables."""
+    # Import here to allow proper mocking
+    import claude_code_pushbullet_notify
+    
     # Get hostname
     try:
-        hostname = socket.gethostname()
+        hostname = claude_code_pushbullet_notify.socket.gethostname()
     except Exception:
         hostname = "unknown"
 
     # Get username
-    username = os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
+    username = claude_code_pushbullet_notify.os.environ.get("USER") or claude_code_pushbullet_notify.os.environ.get("USERNAME") or "unknown"
 
     # Get current working directory
-    cwd = os.getcwd()
+    cwd = claude_code_pushbullet_notify.os.getcwd()
     
     # Get basename of current working directory
-    cwd_basename = os.path.basename(cwd.rstrip(os.sep)) if cwd != os.sep else ""
+    cwd_basename = claude_code_pushbullet_notify.os.path.basename(cwd.rstrip(claude_code_pushbullet_notify.os.sep)) if cwd != claude_code_pushbullet_notify.os.sep else ""
     
     # Get TTY (terminal) information - try direct method first
     tty = _get_tty_direct()
@@ -169,7 +172,9 @@ def _get_system_info():
 
 def _get_time_variables():
     """Get time-related template variables."""
-    now = datetime.now()
+    # Import here to allow proper mocking
+    import claude_code_pushbullet_notify
+    now = claude_code_pushbullet_notify.datetime.now()
     return {
         "TIMESTAMP": now.strftime("%Y-%m-%d %H:%M:%S"),
         "DATE": now.strftime("%Y-%m-%d"),
