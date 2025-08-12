@@ -39,7 +39,7 @@ max_body_length = 500
 #   {substr(CWD, 0, 20)} - First 20 chars of working directory
 #   {regex(MSG0, [0-9]+)} - Extract first number from latest message
 #   {regex(MSG0, "https?://[^\\s]+")} - Extract first URL from message
-title_template = "[{GIT_REPO}] ({GIT_BRANCH}) - Claude Code Task completed\n{MSG0}"
+title_template = "[{GIT_REPO}] ({GIT_BRANCH}) - Claude Code Task completed"
 
 # Optional: Custom body template (if not set, uses last messages from transcript)
 # Example with all variables and functions:

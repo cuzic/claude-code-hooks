@@ -191,7 +191,7 @@ def _read_transcript_messages(transcript_path):
 
 
 def _split_message_into_chunks(message, max_length, reserve_space=0):
-    """Split a message into chunks at word boundaries.
+    """Split a message into chunks with paragraph-level overlap for context.
     
     Args:
         message: The message to split
@@ -199,7 +199,7 @@ def _split_message_into_chunks(message, max_length, reserve_space=0):
         reserve_space: Space to reserve for numbering (e.g., "[10/10] " = 8 chars)
     
     Returns:
-        List of message chunks
+        List of message chunks with overlap for context continuity
     """
     if not message:
         return []
@@ -213,39 +213,89 @@ def _split_message_into_chunks(message, max_length, reserve_space=0):
         return [message]
     
     chunks = []
-    current_chunk = ""
-    words = message.split(" ")
+    paragraphs = message.split('\n\n')  # Split by double newline (paragraphs)
     
-    for word in words:
-        # If a single word is longer than max length, split it forcefully
-        if len(word) > effective_max_length:
-            # Add current chunk if it exists
-            if current_chunk:
-                chunks.append(current_chunk.rstrip())
-                current_chunk = ""
-            
-            # Split the long word
-            while len(word) > effective_max_length:
-                chunks.append(word[:effective_max_length])
-                word = word[effective_max_length:]
-            
-            # Add remainder as start of new chunk
-            if word:
-                current_chunk = word + " "
+    current_chunk = ""
+    previous_paragraph = ""  # Store last paragraph for overlap
+    
+    for para_idx, paragraph in enumerate(paragraphs):
+        # If this is not the first paragraph and we have a previous chunk,
+        # consider adding overlap from the previous paragraph
+        if chunks and previous_paragraph and len(previous_paragraph) < effective_max_length // 3:
+            # Add previous paragraph as overlap if it's not too long
+            test_with_overlap = previous_paragraph + "\n\n" + paragraph
+            if len(test_with_overlap) <= effective_max_length:
+                # Can fit both with overlap
+                if current_chunk and len(current_chunk + "\n\n" + test_with_overlap) > effective_max_length:
+                    # Save current chunk and start new one with overlap
+                    chunks.append(current_chunk)
+                    current_chunk = test_with_overlap
+                else:
+                    # Add to current chunk
+                    if current_chunk:
+                        current_chunk += "\n\n" + test_with_overlap
+                    else:
+                        current_chunk = test_with_overlap
+                previous_paragraph = paragraph
+                continue
+        
+        # Try to add paragraph to current chunk
+        test_chunk = current_chunk + "\n\n" + paragraph if current_chunk else paragraph
+        
+        if len(test_chunk) <= effective_max_length:
+            # Fits in current chunk
+            current_chunk = test_chunk
+            previous_paragraph = paragraph
         else:
-            # Check if adding this word would exceed the limit
-            test_chunk = current_chunk + word + " "
-            if len(test_chunk.rstrip()) <= effective_max_length:
-                current_chunk = test_chunk
+            # Doesn't fit, need to handle it
+            if current_chunk:
+                # Save current chunk
+                chunks.append(current_chunk)
+                
+                # Start new chunk with previous paragraph as overlap (if appropriate)
+                if previous_paragraph and len(previous_paragraph) < effective_max_length // 3:
+                    current_chunk = previous_paragraph + "\n\n" + paragraph
+                    # If even with overlap it's too long, split the paragraph
+                    if len(current_chunk) > effective_max_length:
+                        # Just use the new paragraph
+                        current_chunk = paragraph
+                else:
+                    current_chunk = paragraph
             else:
-                # Save current chunk and start new one
-                if current_chunk:
-                    chunks.append(current_chunk.rstrip())
-                current_chunk = word + " "
+                current_chunk = paragraph
+            
+            # If single paragraph is too long, split it by sentences or words
+            if len(current_chunk) > effective_max_length:
+                # Split long paragraph at sentence boundaries first
+                sentences = current_chunk.replace('. ', '.|').split('|')
+                current_chunk = ""
+                for sentence in sentences:
+                    test_sentence = current_chunk + sentence if current_chunk else sentence
+                    if len(test_sentence) <= effective_max_length:
+                        current_chunk = test_sentence
+                    else:
+                        if current_chunk:
+                            chunks.append(current_chunk)
+                        current_chunk = sentence
+                        
+                        # If single sentence is still too long, split by words
+                        if len(current_chunk) > effective_max_length:
+                            words = current_chunk.split(' ')
+                            current_chunk = ""
+                            for word in words:
+                                test_word = current_chunk + " " + word if current_chunk else word
+                                if len(test_word) <= effective_max_length:
+                                    current_chunk = test_word
+                                else:
+                                    if current_chunk:
+                                        chunks.append(current_chunk)
+                                    current_chunk = word
+            
+            previous_paragraph = paragraph
     
     # Add the last chunk if it exists
-    if current_chunk.strip():
-        chunks.append(current_chunk.rstrip())
+    if current_chunk and current_chunk.strip():
+        chunks.append(current_chunk)
     
     return chunks
 
