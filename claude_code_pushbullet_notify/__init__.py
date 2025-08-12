@@ -667,6 +667,75 @@ def _format_template(template, variables):
     return result
 
 
+def _get_tty_direct():
+    """Get TTY using the direct tty command."""
+    try:
+        result = subprocess.run(
+            ["tty"], capture_output=True, text=True, check=True
+        )
+        tty_full = result.stdout.strip()
+        # Remove /dev/ prefix if present
+        return tty_full.replace("/dev/", "") if tty_full.startswith("/dev/") else tty_full
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "unknown"
+
+
+def _get_tty_from_parent_processes():
+    """Get TTY by traversing parent processes using /proc filesystem."""
+    try:
+        pid = os.getpid()
+        
+        # Traverse up to 10 parent processes to find a TTY
+        for _ in range(10):
+            # Try to get TTY for current PID using ps command
+            try:
+                result = subprocess.run(
+                    ["ps", "-o", "tty=", "-p", str(pid)],
+                    capture_output=True, text=True, check=True
+                )
+                tty = result.stdout.strip()
+                
+                # Check if we got a valid TTY (not ? or ??)
+                if tty and tty not in ["?", "??", "-"]:
+                    # Remove /dev/ prefix if present
+                    return tty.replace("/dev/", "") if tty.startswith("/dev/") else tty
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+            
+            # Get parent PID from /proc/{pid}/stat
+            try:
+                stat_path = f"/proc/{pid}/stat"
+                if os.path.exists(stat_path):
+                    with open(stat_path, 'r') as f:
+                        stat_content = f.read()
+                        # Parent PID is the 4th field in stat file
+                        # Format: pid (comm) state ppid ...
+                        # We need to handle comm which might contain spaces and parentheses
+                        close_paren = stat_content.rfind(')')
+                        if close_paren != -1:
+                            fields = stat_content[close_paren + 1:].split()
+                            if len(fields) >= 2:
+                                parent_pid = int(fields[1])
+                                if parent_pid == pid or parent_pid <= 1:
+                                    # Reached init process or circular reference
+                                    break
+                                pid = parent_pid
+                            else:
+                                break
+                        else:
+                            break
+                else:
+                    # /proc not available (non-Linux system)
+                    break
+            except (IOError, ValueError, IndexError):
+                break
+                
+        return "unknown"
+        
+    except Exception:
+        return "unknown"
+
+
 def _get_system_info():
     """Get system information for template variables."""
     # Get hostname
@@ -684,7 +753,14 @@ def _get_system_info():
     # Get basename of current working directory
     cwd_basename = os.path.basename(cwd.rstrip(os.sep)) if cwd != os.sep else ""
     
-    return hostname, username, cwd, cwd_basename
+    # Get TTY (terminal) information - try direct method first
+    tty = _get_tty_direct()
+    
+    # If direct TTY detection failed, try traversing parent processes
+    if tty == "unknown":
+        tty = _get_tty_from_parent_processes()
+    
+    return hostname, username, cwd, cwd_basename, tty
 
 
 def _get_time_variables():
@@ -725,7 +801,7 @@ def _get_message_variables(transcript_path):
 
 def _get_template_variables(repo_name, branch_name, transcript_path=None):
     """Get all available template variables."""
-    hostname, username, cwd, cwd_basename = _get_system_info()
+    hostname, username, cwd, cwd_basename, tty = _get_system_info()
     
     variables = {
         "GIT_REPO": repo_name,
@@ -734,6 +810,7 @@ def _get_template_variables(repo_name, branch_name, transcript_path=None):
         "USERNAME": username,
         "CWD": cwd,
         "CWD_BASENAME": cwd_basename,
+        "TTY": tty,
     }
     
     # Add time variables

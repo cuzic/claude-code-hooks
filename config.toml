@@ -5,7 +5,7 @@
 num_messages = 3
 
 # Maximum length of notification body (characters)
-max_body_length = 500
+max_body_length = 2000
 
 # Notification title template
 # Available variables:
@@ -18,6 +18,7 @@ max_body_length = 500
 #   {USERNAME} - Current user name
 #   {CWD} - Current working directory (full path)
 #   {CWD_BASENAME} - Current working directory name (last part only)
+#   {TTY} - Terminal device (e.g., pts/0, ttys001)
 #   {MSG0} - Latest assistant message
 #   {MSG1} - Second latest assistant message
 #   {MSG2} - Third latest assistant message
@@ -39,7 +40,7 @@ max_body_length = 500
 #   {substr(CWD, 0, 20)} - First 20 chars of working directory
 #   {regex(MSG0, [0-9]+)} - Extract first number from latest message
 #   {regex(MSG0, "https?://[^\\s]+")} - Extract first URL from message
-title_template = "[{GIT_REPO}] ({GIT_BRANCH}) - Claude Code Task completed"
+title_template = "[{GIT_REPO}] ({GIT_BRANCH}) - Claude Code Task completed {DATE} {TIME} on {TTY}"
 
 # Optional: Custom body template (if not set, uses last messages from transcript)
 # Example with all variables and functions:

@@ -36,6 +36,7 @@ split_long_messages = true
 #   {USERNAME} - Current user name
 #   {CWD} - Current working directory (full path)
 #   {CWD_BASENAME} - Current working directory name (last part only)
+#   {TTY} - Terminal device (e.g., pts/0, ttys001)
 #   {MSG0} - Latest assistant message
 #   {MSG1} - Second latest assistant message
 #   {MSG2} - Third latest assistant message
