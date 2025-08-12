@@ -191,7 +191,7 @@ def _read_transcript_messages(transcript_path):
 
 
 def _split_message_into_chunks(message, max_length, reserve_space=0):
-    """Split a message into chunks at word boundaries.
+    """Split a message into chunks at character boundaries without overlap.
     
     Args:
         message: The message to split
@@ -199,7 +199,7 @@ def _split_message_into_chunks(message, max_length, reserve_space=0):
         reserve_space: Space to reserve for numbering (e.g., "[10/10] " = 8 chars)
     
     Returns:
-        List of message chunks
+        List of message chunks without duplication
     """
     if not message:
         return []
@@ -213,39 +213,44 @@ def _split_message_into_chunks(message, max_length, reserve_space=0):
         return [message]
     
     chunks = []
-    current_chunk = ""
-    words = message.split(" ")
+    position = 0
+    message_length = len(message)
     
-    for word in words:
-        # If a single word is longer than max length, split it forcefully
-        if len(word) > effective_max_length:
-            # Add current chunk if it exists
-            if current_chunk:
-                chunks.append(current_chunk.rstrip())
-                current_chunk = ""
-            
-            # Split the long word
-            while len(word) > effective_max_length:
-                chunks.append(word[:effective_max_length])
-                word = word[effective_max_length:]
-            
-            # Add remainder as start of new chunk
-            if word:
-                current_chunk = word + " "
-        else:
-            # Check if adding this word would exceed the limit
-            test_chunk = current_chunk + word + " "
-            if len(test_chunk.rstrip()) <= effective_max_length:
-                current_chunk = test_chunk
+    while position < message_length:
+        # Calculate end position for this chunk
+        chunk_end = min(position + effective_max_length, message_length)
+        
+        # If not at the end of the message, try to find a good break point
+        if chunk_end < message_length:
+            # Look for a good break point (newline or space)
+            # First, try to find a newline
+            newline_pos = message.rfind('\n', position, chunk_end)
+            if newline_pos > position and newline_pos > position + effective_max_length * 0.5:
+                # Found a newline that's not too close to the start
+                chunk_end = newline_pos + 1  # Include the newline
             else:
-                # Save current chunk and start new one
-                if current_chunk:
-                    chunks.append(current_chunk.rstrip())
-                current_chunk = word + " "
-    
-    # Add the last chunk if it exists
-    if current_chunk.strip():
-        chunks.append(current_chunk.rstrip())
+                # Try to find a space for word boundary
+                space_pos = message.rfind(' ', position, chunk_end)
+                if space_pos > position and space_pos > position + effective_max_length * 0.5:
+                    # Found a space that's not too close to the start
+                    chunk_end = space_pos + 1  # Include the space
+                # Otherwise, just break at the max length
+        
+        # Extract the chunk
+        chunk = message[position:chunk_end]
+        
+        # Remove leading/trailing whitespace but preserve internal structure
+        chunk = chunk.strip()
+        
+        if chunk:  # Only add non-empty chunks
+            chunks.append(chunk)
+        
+        # Move position forward
+        position = chunk_end
+        
+        # Skip any leading whitespace for the next chunk
+        while position < message_length and message[position] in ' \n':
+            position += 1
     
     return chunks
 
