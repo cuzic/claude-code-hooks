@@ -14,6 +14,7 @@ A notification system for Claude Code that sends Pushbullet notifications when C
 - 📝 Debug logging for troubleshooting
 - 🌳 Shows Git repository and branch information in notifications
 - 🎨 Customizable notification templates with variables
+- 🌍 Timezone support for notification timestamps
 
 ## Installation
 
@@ -65,8 +66,13 @@ split_long_messages = true
 # Optional: Delay between sending split messages (milliseconds)
 # split_delay_ms = 500
 
+# Timezone for timestamps (IANA timezone name, e.g., "America/New_York", "Asia/Tokyo")
+# If not specified or invalid, falls back to system timezone
+# timezone = "Asia/Tokyo"
+
 # Custom notification title template (optional)
-# Available variables: {GIT_REPO}, {GIT_BRANCH}, {HOSTNAME}, {USERNAME}, {CWD}, {CWD_BASENAME}, {TIMESTAMP}, {DATE}, {TIME}, {MSG0}-{MSG9}
+# Available variables: {GIT_REPO}, {GIT_BRANCH}, {HOSTNAME}, {USERNAME}, {CWD}, {CWD_BASENAME}, 
+#                     {TIMESTAMP}, {DATE}, {TIME}, {TIMEZONE}, {TIMESTAMP_TZ}, {MSG0}-{MSG9}
 title_template = "[{GIT_REPO}] ({GIT_BRANCH}) - Claude Code Task completed"
 
 [pushbullet]
@@ -79,6 +85,22 @@ debug = true
 
 # Log file path (relative to project directory)
 log_file = "claude-code-stop-notify.log"
+```
+
+### Timezone Configuration
+
+Configure timezone for notification timestamps:
+
+- **IANA timezone names**: Use standard timezone names like "America/New_York", "Asia/Tokyo", "Europe/London"
+- **Automatic DST handling**: Daylight saving time is handled automatically
+- **Fallback behavior**: Falls back to system timezone if not specified or invalid
+- **Template variables**: Use `{TIMEZONE}` for timezone abbreviation, `{TIMESTAMP_TZ}` for full timestamp with timezone
+
+Example configuration:
+```toml
+[notification]
+timezone = "Asia/Tokyo"
+title_template = "[{TIMESTAMP_TZ}] Task completed in {TIMEZONE}"
 ```
 
 ### Message Splitting
