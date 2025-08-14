@@ -5,6 +5,7 @@ import socket
 import subprocess
 from datetime import datetime
 from pathlib import Path
+import zoneinfo
 
 # Avoid circular import by defining this locally
 
@@ -168,12 +169,31 @@ def _get_system_info():
 
 
 def _get_time_variables():
-    """Get time-related template variables."""
-    now = datetime.now()
+    """Get time-related template variables with timezone support."""
+    from .config import CONFIG
+    
+    # Get timezone from config, default to system timezone
+    timezone_name = CONFIG.get("notification", {}).get("timezone")
+    
+    if timezone_name:
+        try:
+            tz = zoneinfo.ZoneInfo(timezone_name)
+            now = datetime.now(tz)
+        except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+            # Fall back to system timezone if specified timezone is invalid
+            now = datetime.now()
+    else:
+        now = datetime.now()
+    
+    # Get timezone abbreviation if available
+    tz_abbrev = now.strftime("%Z") if hasattr(now, 'tzinfo') and now.tzinfo else ""
+    
     return {
         "TIMESTAMP": now.strftime("%Y-%m-%d %H:%M:%S"),
         "DATE": now.strftime("%Y-%m-%d"),
         "TIME": now.strftime("%H:%M:%S"),
+        "TIMEZONE": tz_abbrev,
+        "TIMESTAMP_TZ": now.strftime("%Y-%m-%d %H:%M:%S %Z") if tz_abbrev else now.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 
