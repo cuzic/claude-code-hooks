@@ -48,3 +48,5 @@ Thumbs.db
 .claude/
 test_transcript.py
 config.toml
+config_*_demo.toml
+coverage.xml
