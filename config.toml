@@ -5,7 +5,19 @@
 num_messages = 3
 
 # Maximum length of notification body (characters)
-max_body_length = 2000
+max_body_length = 4000
+
+# Optional: Timezone for timestamp variables (defaults to system timezone)
+# Uses IANA timezone names (e.g., "America/New_York", "Asia/Tokyo", "UTC")
+# If not specified or invalid, falls back to system timezone
+# Common timezones:
+#   UTC
+#   America/New_York (EST/EDT)
+#   America/Los_Angeles (PST/PDT)
+#   Europe/London (GMT/BST)
+#   Asia/Tokyo (JST)
+#   Australia/Sydney (AEST/AEDT)
+timezone = "Asia/Tokyo"
 
 # Notification title template
 # Available variables:

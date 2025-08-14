@@ -25,6 +25,18 @@ split_long_messages = true
 # Uncomment to add a delay between multiple notifications
 # split_delay_ms = 500
 
+# Optional: Timezone for timestamp variables (defaults to system timezone)
+# Uses IANA timezone names (e.g., "America/New_York", "Asia/Tokyo", "UTC")
+# If not specified or invalid, falls back to system timezone
+# Common timezones:
+#   UTC
+#   America/New_York (EST/EDT)
+#   America/Los_Angeles (PST/PDT)
+#   Europe/London (GMT/BST)
+#   Asia/Tokyo (JST)
+#   Australia/Sydney (AEST/AEDT)
+# timezone = "UTC"
+
 # Notification title template
 # Available variables:
 #   {GIT_REPO} - Git repository name
@@ -32,6 +44,8 @@ split_long_messages = true
 #   {TIMESTAMP} - Current timestamp (YYYY-MM-DD HH:MM:SS)
 #   {DATE} - Current date (YYYY-MM-DD)
 #   {TIME} - Current time (HH:MM:SS)
+#   {TIMEZONE} - Timezone abbreviation (e.g., JST, EST, UTC)
+#   {TIMESTAMP_TZ} - Timestamp with timezone (YYYY-MM-DD HH:MM:SS TZ)
 #   {HOSTNAME} - Host machine name
 #   {USERNAME} - Current user name
 #   {CWD} - Current working directory (full path)
@@ -62,7 +76,7 @@ title_template = "[{GIT_REPO}] ({GIT_BRANCH}) - Claude Code Task completed"
 
 # Optional: Custom body template (if not set, uses last messages from transcript)
 # Example with all variables and functions:
-# body_template = "Repository: {GIT_REPO}\nBranch: {GIT_BRANCH}\n\nLatest message:\n{truncate(MSG0, 100)}\n\nTask completed at {TIMESTAMP}"
+# body_template = "Repository: {GIT_REPO}\nBranch: {GIT_BRANCH}\n\nLatest message:\n{truncate(MSG0, 100)}\n\nTask completed at {TIMESTAMP_TZ}"
 
 [pushbullet]
 # Pushbullet API token (can also be set via PUSHBULLET_TOKEN environment variable)
