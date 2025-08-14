@@ -70,7 +70,18 @@ Key components:
 - `config.toml`: User-specific TOML configuration (not committed to git)
 - `.env`: Environment variables for API tokens (not committed)
 
-The hook is triggered by Claude Code's stop event and processes the transcript path provided in the JSON payload. Configuration supports setting the number of messages to include and maximum notification body length.
+The hook is triggered by Claude Code's stop event and processes the transcript path provided in the JSON payload. Configuration supports setting the number of messages to include, maximum notification body length, and timezone conversion for timestamps.
+
+### Timezone Support
+
+The notification system supports timezone-aware timestamps through the `timezone` configuration option. Timestamps are displayed in the specified timezone using IANA timezone names (e.g., "America/New_York", "Asia/Tokyo", "UTC"). If no timezone is specified or an invalid timezone is provided, the system falls back to the local system timezone.
+
+Available timezone-related template variables:
+- `{TIMESTAMP}`: Current timestamp (YYYY-MM-DD HH:MM:SS)
+- `{DATE}`: Current date (YYYY-MM-DD) 
+- `{TIME}`: Current time (HH:MM:SS)
+- `{TIMEZONE}`: Timezone abbreviation (e.g., JST, EST, UTC)
+- `{TIMESTAMP_TZ}`: Timestamp with timezone (YYYY-MM-DD HH:MM:SS TZ)
 
 ## Testing
 
