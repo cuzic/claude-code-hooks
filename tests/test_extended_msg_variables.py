@@ -28,7 +28,7 @@ class TestExtendedMsgVariables:
         """Test MSG0-MSG9 variables are extracted from transcript."""
         messages = [
             "Message 1",
-            "Message 2", 
+            "Message 2",
             "Message 3",
             "Message 4",
             "Message 5",
@@ -184,11 +184,11 @@ class TestRegexFunction:
     def test_regex_function_with_whitespace_handling(self):
         """Test regex function with various spacing."""
         text = "RESULT"
-        
+
         # With spaces around arguments
         result1 = _apply_string_functions(f'{{regex( {text} , "[A-Z]+" )}}')
         assert result1 == "RESULT"
-        
+
         # Without spaces
         result2 = _apply_string_functions(f'{{regex({text},"[A-Z]+")}}')
         assert result2 == "RESULT"

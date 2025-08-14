@@ -75,10 +75,10 @@ def _process_transcript_line(line, line_number):
     data = _parse_json_line(line, line_number)
     if data is None:
         return []
-    
+
     if not _is_assistant_message(data):
         return []
-    
+
     return _extract_message_text(data["message"]["content"])
 
 
@@ -105,6 +105,7 @@ def _read_messages_from_transcript(transcript_path):
 
 # Message splitting functions
 
+
 def _calculate_effective_max_length(max_length, reserve_space):
     """Calculate effective maximum length after reserving space."""
     effective_max_length = max_length - reserve_space
@@ -115,16 +116,15 @@ def _calculate_effective_max_length(max_length, reserve_space):
 
 def _should_add_overlap(chunks, previous_paragraph, effective_max_length):
     """Check if overlap should be added from previous paragraph."""
-    return (chunks and previous_paragraph and 
-            len(previous_paragraph) < effective_max_length // 3)
+    return chunks and previous_paragraph and len(previous_paragraph) < effective_max_length // 3
 
 
 def _split_by_sentences(text, max_length):
     """Split text by sentence boundaries."""
-    sentences = text.replace('. ', '.|').split('|')
+    sentences = text.replace(". ", ".|").split("|")
     chunks = []
     current = ""
-    
+
     for sentence in sentences:
         # If a single sentence is longer than max_length, split by words
         if len(sentence) > max_length:
@@ -143,7 +143,7 @@ def _split_by_sentences(text, max_length):
                 if current:
                     chunks.append(current)
                 current = sentence
-    
+
     if current:
         chunks.append(current)
     return chunks
@@ -163,10 +163,10 @@ def _split_by_characters(text, max_length):
 
 def _split_by_words(text, max_length):
     """Split text by word boundaries."""
-    words = text.split(' ')
+    words = text.split(" ")
     chunks = []
     current = ""
-    
+
     for word in words:
         # If a single word is longer than max_length, split it by characters
         if len(word) > max_length:
@@ -183,17 +183,16 @@ def _split_by_words(text, max_length):
                 if current:
                     chunks.append(current)
                 current = word
-    
+
     if current:
         chunks.append(current)
     return chunks
 
 
-def _handle_paragraph_overlap(current_chunk, paragraph, previous_paragraph, 
-                             effective_max_length, chunks):
+def _handle_paragraph_overlap(current_chunk, paragraph, previous_paragraph, effective_max_length, chunks):
     """Handle adding paragraph with potential overlap."""
     test_with_overlap = previous_paragraph + "\n\n" + paragraph
-    
+
     if len(test_with_overlap) <= effective_max_length:
         # Can fit both with overlap
         if current_chunk and len(current_chunk + "\n\n" + test_with_overlap) > effective_max_length:
@@ -206,24 +205,23 @@ def _handle_paragraph_overlap(current_chunk, paragraph, previous_paragraph,
                 return current_chunk + "\n\n" + test_with_overlap, True
             else:
                 return test_with_overlap, True
-    
+
     return current_chunk, False
 
 
-def _process_paragraph(current_chunk, paragraph, previous_paragraph,
-                      effective_max_length, chunks):
+def _process_paragraph(current_chunk, paragraph, previous_paragraph, effective_max_length, chunks):
     """Process a single paragraph and update chunks."""
     # Try to add paragraph to current chunk
     test_chunk = current_chunk + "\n\n" + paragraph if current_chunk else paragraph
-    
+
     if len(test_chunk) <= effective_max_length:
         # Fits in current chunk
         return test_chunk, paragraph
-    
+
     # Doesn't fit, need to handle it
     if current_chunk:
         chunks.append(current_chunk)
-        
+
         # Start new chunk with overlap if appropriate
         if previous_paragraph and len(previous_paragraph) < effective_max_length // 3:
             new_chunk = previous_paragraph + "\n\n" + paragraph
@@ -233,88 +231,86 @@ def _process_paragraph(current_chunk, paragraph, previous_paragraph,
             new_chunk = paragraph
     else:
         new_chunk = paragraph
-    
+
     # If single paragraph is too long, split it
     if len(new_chunk) > effective_max_length:
         split_chunks = _split_by_sentences(new_chunk, effective_max_length)
         if split_chunks:
             chunks.extend(split_chunks[:-1])  # Add all but last
             new_chunk = split_chunks[-1]
-    
+
     return new_chunk, paragraph
 
 
 def _split_message_into_chunks(message, max_length, reserve_space=0):
     """Split a message into chunks with paragraph-level overlap for context.
-    
+
     Args:
         message: The message to split
         max_length: Maximum length for each chunk
         reserve_space: Space to reserve for numbering (e.g., "[10/10] " = 8 chars)
-    
+
     Returns:
         List of message chunks with overlap for context continuity
     """
     if not message:
         return []
-    
+
     effective_max_length = _calculate_effective_max_length(max_length, reserve_space)
-    
+
     # If message fits in one chunk, return as is
     if len(message) <= effective_max_length:
         return [message]
-    
+
     chunks = []
-    paragraphs = message.split('\n\n')  # Split by double newline (paragraphs)
-    
+    paragraphs = message.split("\n\n")  # Split by double newline (paragraphs)
+
     current_chunk = ""
     previous_paragraph = ""  # Store last paragraph for overlap
-    
+
     for paragraph in paragraphs:
         # Check for overlap handling
         if _should_add_overlap(chunks, previous_paragraph, effective_max_length):
             new_chunk, handled = _handle_paragraph_overlap(
-                current_chunk, paragraph, previous_paragraph, 
-                effective_max_length, chunks
+                current_chunk, paragraph, previous_paragraph, effective_max_length, chunks
             )
             if handled:
                 current_chunk = new_chunk
                 previous_paragraph = paragraph
                 continue
-        
+
         # Process paragraph normally
         current_chunk, previous_paragraph = _process_paragraph(
-            current_chunk, paragraph, previous_paragraph,
-            effective_max_length, chunks
+            current_chunk, paragraph, previous_paragraph, effective_max_length, chunks
         )
-    
+
     # Add the last chunk if it exists
     if current_chunk and current_chunk.strip():
         chunks.append(current_chunk)
-    
+
     return chunks
 
 
 def _add_part_numbers_to_title(title, part_num, total_parts):
     """Add part numbers to a title for multi-part messages.
-    
+
     Args:
         title: The original title
         part_num: Current part number (1-based)
         total_parts: Total number of parts
-    
+
     Returns:
         Title with part numbers if needed
     """
     if total_parts <= 1:
         return title
-    
+
     return f"[{part_num}/{total_parts}] {title}"
 
 
 def _format_notification_body(messages, num_lines, max_length=None):
     """Format messages for notification body.
-    
+
     Note: max_length is now optional as splitting is handled during sending.
     """
     if not messages:

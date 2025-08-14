@@ -1,15 +1,11 @@
 """Tests for new template variables: HOSTNAME, USERNAME, CWD."""
 
 import os
-import socket
 from datetime import datetime
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
-
-from claude_code_pushbullet_notify.template import _format_template, _get_template_variables
 from claude_code_pushbullet_notify.pushbullet import _send_notification
+from claude_code_pushbullet_notify.template import _format_template, _get_template_variables
 
 
 class TestNewTemplateVariables:
@@ -93,12 +89,15 @@ class TestNewTemplateVariables:
         assert result == "john@dev-machine:/projects/app - myapp"
 
     @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
-        "notification": {
-            "title_template": "{USERNAME}@{HOSTNAME} - {GIT_REPO}",
-            "body_template": "Working in: {CWD}\nBranch: {GIT_BRANCH}",
-        }
-    })
+    @patch.dict(
+        "claude_code_pushbullet_notify.config.CONFIG",
+        {
+            "notification": {
+                "title_template": "{USERNAME}@{HOSTNAME} - {GIT_REPO}",
+                "body_template": "Working in: {CWD}\nBranch: {GIT_BRANCH}",
+            }
+        },
+    )
     @patch("socket.gethostname")
     @patch("os.getcwd")
     @patch.dict("os.environ", {"USER": "alice"})
@@ -135,7 +134,9 @@ class TestNewTemplateVariables:
         assert result == expected
 
     @patch("claude_code_pushbullet_notify.pushbullet.send_split_notifications")
-    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {"notification": {"title_template": "Working in: {CWD}"}})
+    @patch.dict(
+        "claude_code_pushbullet_notify.config.CONFIG", {"notification": {"title_template": "Working in: {CWD}"}}
+    )
     def test_cwd_with_spaces(self, mock_send):
         """Test CWD variable with spaces in path."""
         mock_send.return_value = True
@@ -196,7 +197,10 @@ class TestNewTemplateVariables:
         assert variables["CWD_BASENAME"] == "project"
 
     @patch("claude_code_pushbullet_notify.pushbullet.send_split_notifications")
-    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {"notification": {"title_template": "Project: {CWD_BASENAME} - {GIT_REPO}"}})
+    @patch.dict(
+        "claude_code_pushbullet_notify.config.CONFIG",
+        {"notification": {"title_template": "Project: {CWD_BASENAME} - {GIT_REPO}"}},
+    )
     @patch("os.getcwd")
     def test_template_with_cwd_basename(self, mock_getcwd, mock_send):
         """Test template using CWD_BASENAME variable."""

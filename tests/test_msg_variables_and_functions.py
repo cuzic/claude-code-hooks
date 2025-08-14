@@ -2,16 +2,14 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
-
+from claude_code_pushbullet_notify.pushbullet import _send_notification
 from claude_code_pushbullet_notify.template import (
     _apply_string_functions,
     _format_template,
     _get_template_variables,
 )
-from claude_code_pushbullet_notify.pushbullet import _send_notification
 
 
 class TestMsgVariables:
@@ -169,12 +167,15 @@ class TestStringFunctions:
         assert result2 == "Te..."
 
     @patch("claude_code_pushbullet_notify.pushbullet.send_split_notifications")
-    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
-        "notification": {
-            "title_template": "{GIT_REPO}: {truncate(MSG0, 30)}",
-            "body_template": "Latest: {MSG0}\nPrevious: {truncate(MSG1, 20)}",
-        }
-    })
+    @patch.dict(
+        "claude_code_pushbullet_notify.config.CONFIG",
+        {
+            "notification": {
+                "title_template": "{GIT_REPO}: {truncate(MSG0, 30)}",
+                "body_template": "Latest: {MSG0}\nPrevious: {truncate(MSG1, 20)}",
+            }
+        },
+    )
     def test_integration_msg_and_functions(self, mock_send):
         """Test integration of MSG variables with string functions."""
         messages = [

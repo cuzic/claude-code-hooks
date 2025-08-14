@@ -4,14 +4,11 @@ import json
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-import tomllib
 
-from claude_code_pushbullet_notify.template import _format_template, _get_template_variables
-from claude_code_pushbullet_notify.pushbullet import _handle_stop_event, _send_notification, main
-from claude_code_pushbullet_notify.config import load_config
+from claude_code_pushbullet_notify.pushbullet import _send_notification, main
 
 
 class TestTemplateIntegration:
@@ -125,8 +122,7 @@ class TestTemplateIntegration:
     def test_main_with_custom_template(self, mock_stdin, mock_parse_args, mock_pushbullet):
         """Test main function with custom template configuration."""
         from argparse import Namespace
-        import json
-        
+
         hook_data = {"hook_event_name": "Stop", "transcript_path": "/dev/null"}
         mock_stdin.read.return_value = json.dumps(hook_data)
         mock_parse_args.return_value = Namespace(test=False, transcript_path=None)

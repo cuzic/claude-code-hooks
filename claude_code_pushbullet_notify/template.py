@@ -3,14 +3,15 @@
 import os
 import socket
 import subprocess
+import zoneinfo
 from datetime import datetime
 from pathlib import Path
-import zoneinfo
 
 # Avoid circular import by defining this locally
 
 
 # Git information functions
+
 
 def _get_git_info_from_env():
     """Get git info from environment variables."""
@@ -24,8 +25,7 @@ def _get_git_info_from_env():
 def _get_repo_name_from_git(cwd):
     """Get repository name using git command."""
     result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], 
-        capture_output=True, text=True, check=True, cwd=cwd
+        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True, cwd=cwd
     )
     repo_path = Path(result.stdout.strip())
     return repo_path.name.replace(".git", "")
@@ -34,8 +34,7 @@ def _get_repo_name_from_git(cwd):
 def _get_branch_name_from_git(cwd):
     """Get branch name using git command."""
     result = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"], 
-        capture_output=True, text=True, check=True, cwd=cwd
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=True, cwd=cwd
     )
     return result.stdout.strip()
 
@@ -60,12 +59,11 @@ def get_git_info():
 
 # System information functions
 
+
 def _get_tty_direct():
     """Get TTY using the direct tty command."""
     try:
-        result = subprocess.run(
-            ["tty"], capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(["tty"], capture_output=True, text=True, check=True)
         tty_full = result.stdout.strip()
         # Remove /dev/ prefix if present
         return tty_full.replace("/dev/", "") if tty_full.startswith("/dev/") else tty_full
@@ -76,12 +74,9 @@ def _get_tty_direct():
 def _get_tty_for_pid(pid):
     """Try to get TTY for a specific PID using ps command."""
     try:
-        result = subprocess.run(
-            ["ps", "-o", "tty=", "-p", str(pid)],
-            capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(["ps", "-o", "tty=", "-p", str(pid)], capture_output=True, text=True, check=True)
         tty = result.stdout.strip()
-        
+
         # Check if we got a valid TTY (not ? or ??)
         if tty and tty not in ["?", "??", "-"]:
             # Remove /dev/ prefix if present
@@ -97,22 +92,22 @@ def _get_parent_pid_from_proc(pid):
         stat_path = f"/proc/{pid}/stat"
         if not os.path.exists(stat_path):
             return None
-            
-        with open(stat_path, 'r') as f:
+
+        with open(stat_path) as f:
             stat_content = f.read()
             # Parent PID is the 4th field in stat file
             # Format: pid (comm) state ppid ...
             # We need to handle comm which might contain spaces and parentheses
-            close_paren = stat_content.rfind(')')
+            close_paren = stat_content.rfind(")")
             if close_paren == -1:
                 return None
-                
-            fields = stat_content[close_paren + 1:].split()
+
+            fields = stat_content[close_paren + 1 :].split()
             if len(fields) >= 2:
                 parent_pid = int(fields[1])
                 if parent_pid != pid and parent_pid > 1:
                     return parent_pid
-    except (IOError, ValueError, IndexError):
+    except (OSError, ValueError, IndexError):
         pass
     return None
 
@@ -121,22 +116,22 @@ def _get_tty_from_parent_processes():
     """Get TTY by traversing parent processes using /proc filesystem."""
     try:
         pid = os.getpid()
-        
+
         # Traverse up to 10 parent processes to find a TTY
         for _ in range(10):
             # Try to get TTY for current PID
             tty = _get_tty_for_pid(pid)
             if tty:
                 return tty
-            
+
             # Get parent PID and continue traversing
             parent_pid = _get_parent_pid_from_proc(pid)
             if parent_pid is None:
                 break
             pid = parent_pid
-                
+
         return "unknown"
-        
+
     except Exception:
         return "unknown"
 
@@ -154,27 +149,27 @@ def _get_system_info():
 
     # Get current working directory
     cwd = os.getcwd()
-    
+
     # Get basename of current working directory
     cwd_basename = os.path.basename(cwd.rstrip(os.sep)) if cwd != os.sep else ""
-    
+
     # Get TTY (terminal) information - try direct method first
     tty = _get_tty_direct()
-    
+
     # If direct TTY detection failed, try traversing parent processes
     if tty == "unknown":
         tty = _get_tty_from_parent_processes()
-    
+
     return hostname, username, cwd, cwd_basename, tty
 
 
 def _get_time_variables():
     """Get time-related template variables with timezone support."""
     from .config import CONFIG
-    
+
     # Get timezone from config, default to system timezone
     timezone_name = CONFIG.get("notification", {}).get("timezone")
-    
+
     if timezone_name:
         try:
             tz = zoneinfo.ZoneInfo(timezone_name)
@@ -184,10 +179,10 @@ def _get_time_variables():
             now = datetime.now()
     else:
         now = datetime.now()
-    
+
     # Get timezone abbreviation if available
-    tz_abbrev = now.strftime("%Z") if hasattr(now, 'tzinfo') and now.tzinfo else ""
-    
+    tz_abbrev = now.strftime("%Z") if hasattr(now, "tzinfo") and now.tzinfo else ""
+
     return {
         "TIMESTAMP": now.strftime("%Y-%m-%d %H:%M:%S"),
         "DATE": now.strftime("%Y-%m-%d"),
@@ -206,6 +201,7 @@ def _read_messages_from_transcript_for_template(transcript_path):
     try:
         # Import here to avoid circular imports
         from .transcript import _read_transcript_messages
+
         return _read_transcript_messages(Path(transcript_path).expanduser())
     except Exception:
         return []
@@ -214,18 +210,19 @@ def _read_messages_from_transcript_for_template(transcript_path):
 def _get_message_variables(transcript_path):
     """Get MSG0-MSG9 variables from transcript."""
     messages = _read_messages_from_transcript_for_template(transcript_path)
-    
+
     # Reverse so MSG0 is the latest message
     messages = list(reversed(messages))
-    
+
     msg_vars = {}
     for i in range(10):  # MSG0 through MSG9
         msg_vars[f"MSG{i}"] = messages[i] if i < len(messages) else ""
-    
+
     return msg_vars
 
 
 # Template processing functions
+
 
 def _resolve_variable_content(var_content, variables):
     """Resolve a variable name to its content if it exists in variables dict."""
@@ -251,7 +248,7 @@ def _truncate_text(text, length):
 def _apply_truncate_function(text, variables):
     """Apply truncate function to template text."""
     import re
-    
+
     truncate_pattern = r"\{truncate\(\s*([^,)]+?)\s*,\s*(\d+)\s*\)\}"
 
     def truncate_replace(match):
@@ -266,7 +263,7 @@ def _apply_truncate_function(text, variables):
 def _apply_substr_function(text, variables):
     """Apply substr function to template text."""
     import re
-    
+
     # Handle simple cases with regex
     substr_pattern = r"\{substr\(\s*([^,)]+|\w+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)\}"
 
@@ -279,7 +276,7 @@ def _apply_substr_function(text, variables):
         return var_content[start : start + length]
 
     text = re.sub(substr_pattern, substr_replace, text)
-    
+
     # Handle complex cases with commas
     text = _apply_complex_substr(text, variables)
     return text
@@ -297,13 +294,13 @@ def _process_substr_match(text, start_idx, end_idx, variables):
     """Process a single substr function match."""
     func_content = text[start_idx + 8 : end_idx]
     var_content, start_str, length_str = _extract_substr_params(func_content)
-    
+
     if var_content is None:
         return None
-        
+
     var_content = _resolve_variable_content(var_content, variables)
     var_content = _remove_quotes(var_content)
-    
+
     try:
         start_pos = int(start_str)
         length_val = int(length_str)
@@ -319,11 +316,11 @@ def _find_function_bounds(text, func_name):
     start_idx = text.find(pattern)
     if start_idx == -1:
         return None, None
-    
+
     end_idx = text.find(")}", start_idx)
     if end_idx == -1:
         return None, None
-    
+
     return start_idx, end_idx
 
 
@@ -338,7 +335,7 @@ def _apply_complex_substr(text, variables):
         if new_text is None:
             break
         text = new_text
-    
+
     return text
 
 
@@ -353,10 +350,10 @@ def _extract_regex_params(func_content):
 def _apply_regex_pattern(var_content, pattern):
     """Apply regex pattern to variable content."""
     import re
-    
+
     var_content = _remove_quotes(var_content)
     pattern = _remove_quotes(pattern)
-    
+
     try:
         regex_match = re.search(pattern, var_content)
         return regex_match.group(0) if regex_match else ""
@@ -367,20 +364,20 @@ def _apply_regex_pattern(var_content, pattern):
 def _process_regex_match(text, start_idx, end_idx, variables):
     """Process a single regex function match."""
     func_content = text[start_idx + 7 : end_idx]  # Skip '{regex('
-    
+
     var_content, pattern = _extract_regex_params(func_content)
     if var_content is None:
-        return text[:start_idx] + "" + text[end_idx + 2:]
-    
+        return text[:start_idx] + "" + text[end_idx + 2 :]
+
     var_content = _resolve_variable_content(var_content, variables)
     replacement = _apply_regex_pattern(var_content, pattern)
-    
-    return text[:start_idx] + replacement + text[end_idx + 2:]
+
+    return text[:start_idx] + replacement + text[end_idx + 2 :]
 
 
 def _apply_regex_function(text, variables):
     """Apply regex function to extract text matching a pattern.
-    
+
     Usage: {regex(text, pattern)}
     Example: {regex(MSG0, [0-9]+)} - extracts numbers from MSG0
     """
@@ -390,7 +387,7 @@ def _apply_regex_function(text, variables):
             break
 
         text = _process_regex_match(text, start_idx, end_idx, variables)
-    
+
     return text
 
 
@@ -430,7 +427,7 @@ def _format_template(template, variables):
 def _get_template_variables(repo_name, branch_name, transcript_path=None):
     """Get all available template variables."""
     hostname, username, cwd, cwd_basename, tty = _get_system_info()
-    
+
     variables = {
         "GIT_REPO": repo_name,
         "GIT_BRANCH": branch_name,
@@ -440,10 +437,10 @@ def _get_template_variables(repo_name, branch_name, transcript_path=None):
         "CWD_BASENAME": cwd_basename,
         "TTY": tty,
     }
-    
+
     # Add time variables
     variables.update(_get_time_variables())
-    
+
     # Add message variables
     variables.update(_get_message_variables(transcript_path))
 

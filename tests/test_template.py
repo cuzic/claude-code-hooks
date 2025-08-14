@@ -3,10 +3,8 @@
 from datetime import datetime
 from unittest.mock import patch
 
-import pytest
-
-from claude_code_pushbullet_notify.template import _format_template, _get_template_variables
 from claude_code_pushbullet_notify.pushbullet import _send_notification
+from claude_code_pushbullet_notify.template import _format_template, _get_template_variables
 
 
 class TestTemplateFormatting:
@@ -84,9 +82,10 @@ class TestNotificationWithTemplates:
     """Test notification sending with templates."""
 
     @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
-        "notification": {"title_template": "[{GIT_BRANCH}] {GIT_REPO} - Done"}
-    })
+    @patch.dict(
+        "claude_code_pushbullet_notify.config.CONFIG",
+        {"notification": {"title_template": "[{GIT_BRANCH}] {GIT_REPO} - Done"}},
+    )
     def test_send_notification_with_title_template(self, mock_send):
         """Test sending notification with custom title template."""
         mock_send.return_value = True
@@ -99,12 +98,15 @@ class TestNotificationWithTemplates:
         assert args[1] == "Task completed"
 
     @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
-        "notification": {
-            "title_template": "Task completed: {GIT_REPO}",
-            "body_template": "Repo: {GIT_REPO}\nBranch: {GIT_BRANCH}\nTime: {TIME}",
-        }
-    })
+    @patch.dict(
+        "claude_code_pushbullet_notify.config.CONFIG",
+        {
+            "notification": {
+                "title_template": "Task completed: {GIT_REPO}",
+                "body_template": "Repo: {GIT_REPO}\nBranch: {GIT_BRANCH}\nTime: {TIME}",
+            }
+        },
+    )
     def test_send_notification_with_body_template(self, mock_send):
         """Test sending notification with custom body template."""
         mock_send.return_value = True
@@ -123,9 +125,7 @@ class TestNotificationWithTemplates:
         assert "Time: 14:30:45" in args[1]
 
     @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
-        "notification": {}
-    })
+    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {"notification": {}})
     def test_send_notification_no_template(self, mock_send):
         """Test sending notification without templates (fallback to default)."""
         mock_send.return_value = True
@@ -138,9 +138,10 @@ class TestNotificationWithTemplates:
         assert args[1] == "Task done"
 
     @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
-        "notification": {"title_template": "{GIT_REPO} - {DATE} {TIME}"}
-    })
+    @patch.dict(
+        "claude_code_pushbullet_notify.config.CONFIG",
+        {"notification": {"title_template": "{GIT_REPO} - {DATE} {TIME}"}},
+    )
     @patch("claude_code_pushbullet_notify.template.datetime")
     def test_send_notification_with_timestamp(self, mock_datetime, mock_send):
         """Test notification with timestamp variables."""
@@ -156,9 +157,10 @@ class TestNotificationWithTemplates:
         assert args[0] == "time-test - 2024-03-20 09:15:30"
 
     @patch("claude_code_pushbullet_notify.pushbullet.send_pushbullet_notification")
-    @patch.dict("claude_code_pushbullet_notify.config.CONFIG", {
-        "notification": {"title_template": "Repo: {GIT_REPO} | Branch: {GIT_BRANCH}"}
-    })
+    @patch.dict(
+        "claude_code_pushbullet_notify.config.CONFIG",
+        {"notification": {"title_template": "Repo: {GIT_REPO} | Branch: {GIT_BRANCH}"}},
+    )
     def test_send_notification_escaping(self, mock_send):
         """Test that templates handle special characters correctly."""
         mock_send.return_value = True

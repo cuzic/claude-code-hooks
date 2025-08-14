@@ -59,7 +59,7 @@ class TestMainFunction:
         """Test main function with Claude Code hook data."""
         import json
         from argparse import Namespace
-        
+
         hook_data = {"hook_event_name": "Stop", "transcript_path": "/test/transcript.jsonl"}
         mock_stdin.read.return_value = json.dumps(hook_data)
         mock_parse_args.return_value = Namespace(test=False, transcript_path=None)
@@ -124,6 +124,7 @@ class TestMainFunction:
         """Test main function with --test flag and transcript path."""
         # Mock ArgumentParser.parse_args to return the expected args
         from argparse import Namespace
+
         # Note: argparse converts --transcript-path to transcript_path attribute
         mock_parse_args.return_value = Namespace(test=True, transcript_path="/test/transcript.jsonl")
 

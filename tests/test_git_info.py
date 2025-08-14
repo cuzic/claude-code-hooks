@@ -139,7 +139,7 @@ class TestShellScriptIntegration:
 
     def test_shell_script_exports_git_info(self, temp_git_repo):
         """Test that the shell script correctly exports git info as environment variables."""
-        script_path = Path(__file__).parent.parent / "scripts" / "claude-code-pushbullet-notify"
+        # script_path = Path(__file__).parent.parent / "scripts" / "claude-code-pushbullet-notify"  # Unused
 
         # Create a test script that sources our script and prints the env vars
         test_script = f"""#!/bin/bash
@@ -199,14 +199,14 @@ echo "HOOK_GIT_BRANCH=$HOOK_GIT_BRANCH"
     def test_full_script_flow(self, temp_git_repo, monkeypatch):
         """Test the full flow from shell script to Python with mock stdin."""
         # Create a mock hook data
-        hook_data = {
-            "hook_event_name": "Stop",
-            "transcript_path": "/dev/null",  # Use /dev/null as a valid but empty file
-            "stop_hook_active": True,
-        }
+        # hook_data = {
+        #     "hook_event_name": "Stop",
+        #     "transcript_path": "/dev/null",  # Use /dev/null as a valid but empty file
+        #     "stop_hook_active": True,
+        # }  # Unused
 
         # Set up the test to run from the temp git repo
-        script_path = Path(__file__).parent.parent / "scripts" / "claude-code-pushbullet-notify"
+        # script_path = Path(__file__).parent.parent / "scripts" / "claude-code-pushbullet-notify"  # Unused
 
         # Create a test that captures what the Python module would see
         test_script = f"""#!/bin/bash
